@@ -1,0 +1,37 @@
+{
+  "name": "attendance-management-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "generate-icons": "ts-node --esm scripts/generateIcons.ts"
+  },
+  "dependencies": {
+    "@headlessui/react": "^1.7.17",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.1",
+    "sharp": "^0.32.1",
+    "tailwindcss": "^3.4.17",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.7.2",
+    "vite": "^6.1.0",
+    "vite-plugin-pwa": "^0.21.1"
+  },
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  }
+}
