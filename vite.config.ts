@@ -33,18 +33,10 @@ export default defineConfig({
       }
     })
   ],
-  base: './',
+  base: '/',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          utils: ['date-fns', 'xlsx']
-        }
-      }
-    }
+    sourcemap: true
   }
 })
