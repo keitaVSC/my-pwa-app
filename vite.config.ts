@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
@@ -14,29 +13,38 @@ export default defineConfig({
         short_name: '勤怠管理',
         description: '30名規模の勤怠管理アプリケーション',
         theme_color: '#4A90E2',
+        start_url: '/',
+        display: 'standalone',
+        background_color: '#ffffff',
         icons: [
           {
             src: '/icons/icon-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
             src: '/icons/icon-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }
     })
   ],
+  base: './',
   build: {
-    target: 'esnext',
     outDir: 'dist',
     assetsDir: 'assets',
-    minify: 'terser',
-  },
-  server: {
-    port: 3000,
-    open: true
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          utils: ['date-fns', 'xlsx']
+        }
+      }
+    }
   }
 })
