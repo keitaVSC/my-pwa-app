@@ -6,9 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "generate-icons": "ts-node --esm scripts/generateIcons.ts"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.17",
@@ -22,7 +20,7 @@
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
     "sharp": "^0.32.6",
@@ -30,7 +28,7 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
     "vite": "^5.0.10",
-    "vite-plugin-pwa": "^0.17.4"
+    "vite-plugin-pwa": "^0.17.5"
   },
   "ts-node": {
     "esm": true,

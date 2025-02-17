@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: '勤怠管理アプリ',
-        short_name: '勤怠管理',
-        description: '30名規模の勤怠管理アプリケーション',
+        name: '勤務管理アプリ',
+        short_name: '勤務管理',
+        description: '30名程度の勤務管理アプリケーション',
         theme_color: '#4A90E2',
         start_url: '/',
         display: 'standalone',
