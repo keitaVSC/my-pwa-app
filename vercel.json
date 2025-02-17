@@ -3,8 +3,22 @@
   "framework": "vite",
   "routes": [
     {
+      "src": "^/manifest.json",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate"
+      }
+    },
+    {
+      "src": "^/sw.js",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate"
+      }
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ]
-} 
+  ],
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
+}

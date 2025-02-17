@@ -5,7 +5,14 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      minHeight: {
+        'calendar-cell': '6rem'
+      },
+      backgroundColor: {
+        'calendar-hover': 'rgba(229, 231, 235, 0.5)'
+      }
+    },
   },
   plugins: [],
 }
