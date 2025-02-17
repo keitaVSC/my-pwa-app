@@ -33,10 +33,20 @@ export default defineConfig({
       }
     })
   ],
-  base: '',
+  base: './', // '/' から './' に変更
+  resolve: {  // 追加
+    alias: {
+      '@': '/src'
+    }
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    sourcemap: true
+    sourcemap: true,
+    rollupOptions: {  // 追加
+      output: {
+        manualChunks: undefined
+      }
+    }
   }
 })
