@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build --mode production",
+    "build": "tsc && vite build --mode production && workbox generateSW",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -30,7 +30,8 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
     "vite": "^5.0.10",
-    "vite-plugin-pwa": "^0.17.5"
+    "vite-plugin-pwa": "^0.17.5",
+    "workbox-cli": "^7.3.0"
   },
   "engines": {
     "node": ">=18.0.0"

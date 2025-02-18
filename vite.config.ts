@@ -12,19 +12,23 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        cleanupOutdatedCaches: true
+      },
       includeAssets: ['favicon.ico'],
       manifest: {
         name: '勤務管理アプリ',
         short_name: '勤務管理',
         icons: [
           {
-            src: '/icons/icon-192x192.png',
+            src: './icons/icon-192x192.png',  // 相対パスに変更
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: '/icons/icon-512x512.png',
+            src: './icons/icon-512x512.png',  // 相対パスに変更
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
