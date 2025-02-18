@@ -88,7 +88,6 @@ const workTypes: WorkType[] = [
   { id: "短", label: "短" },
   { id: "短土", label: "短土" },
 ];
-
 const AttendanceApp: React.FC = () => {
   // State
   const [currentView, setCurrentView] = useState<View>("calendar");
@@ -102,7 +101,6 @@ const AttendanceApp: React.FC = () => {
     date: Date;
   } | null>(null);
 
-  // 新しい状態を追加
   const [selectedDateDetails, setSelectedDateDetails] = useState<{
     date: Date;
     records: AttendanceRecord[];
@@ -114,19 +112,16 @@ const AttendanceApp: React.FC = () => {
     const lastDay = new Date(year, month + 1, 0);
     const dates = [];
 
-    // Add dates from previous month
     for (let i = 0; i < firstDay.getDay(); i++) {
       const prevDate = new Date(year, month, -i);
       dates.unshift({ date: prevDate, isCurrentMonth: false });
     }
 
-    // Add dates from current month
     for (let i = 1; i <= lastDay.getDate(); i++) {
       dates.push({ date: new Date(year, month, i), isCurrentMonth: true });
     }
 
-    // Add dates from next month
-    const remainingDays = 42 - dates.length; // 6 weeks * 7 days = 42
+    const remainingDays = 42 - dates.length;
     for (let i = 1; i <= remainingDays; i++) {
       dates.push({ date: new Date(year, month + 1, i), isCurrentMonth: false });
     }
@@ -159,7 +154,6 @@ const AttendanceApp: React.FC = () => {
 
     return (
       <div className="flex flex-col h-full">
-        {/* 従業員選択 */}
         <div className="mb-4">
           <select
             value={selectedEmployee}
@@ -175,7 +169,6 @@ const AttendanceApp: React.FC = () => {
           </select>
         </div>
 
-        {/* テーブル */}
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse">
             <thead className="sticky top-0 bg-white z-10">
@@ -228,7 +221,6 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   };
-
   // カレンダービューコンポーネント
   const CalendarView = () => {
     return (
@@ -273,7 +265,7 @@ const AttendanceApp: React.FC = () => {
     );
   };
 
-  // 勤務登録モーダル（上書き保存対応）
+  // 勤務登録モーダル
   const WorkTypeSelectionModal = () => {
     const [selectedWorkType, setSelectedWorkType] = useState('');
 
@@ -281,16 +273,10 @@ const AttendanceApp: React.FC = () => {
       if (!selectedCell || !selectedWorkType) return;
 
       const dateStr = format(selectedCell.date, 'yyyy-MM-dd');
-      
-      // 既存のレコードを削除
       const newAttendanceData = attendanceData.filter(
-        record => !(
-          record.employeeId === selectedCell.employeeId.toString() &&
-          record.date === dateStr
-        )
+        record => !(record.employeeId === selectedCell.employeeId.toString() && record.date === dateStr)
       );
 
-      // 新しいレコードを追加
       const newRecord: AttendanceRecord = {
         employeeId: selectedCell.employeeId.toString(),
         date: dateStr,
@@ -348,7 +334,7 @@ const AttendanceApp: React.FC = () => {
     );
   };
 
-  // 日付詳細モーダル（新規追加）
+  // 日付詳細モーダル
   const AttendanceDetailModal = () => {
     if (!selectedDateDetails) return null;
 
@@ -393,7 +379,6 @@ const AttendanceApp: React.FC = () => {
     XLSX.writeFile(wb, `勤務記録_${format(currentDate, 'yyyy年M月')}.xlsx`);
   };
 
-  // Main component render
   return (
     <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-4">
