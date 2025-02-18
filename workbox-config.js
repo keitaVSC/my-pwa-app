@@ -1,5 +1,11 @@
-module.exports = {
-    scripts: {
-        build: "tsc && vite build --mode production && workbox generateSW workbox-config.js"
-    }
-};
+export default {
+    globDirectory: "dist/",
+    globPatterns: [
+      "**/*.{js,css,html,ico,png,svg,webmanifest}"
+    ],
+    swDest: "dist/sw.js",
+    sourcemap: true,
+    cleanupOutdatedCaches: true,
+    skipWaiting: true,
+    clientsClaim: true
+  };
