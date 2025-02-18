@@ -5,34 +5,32 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build --mode production",
     "preview": "vite preview"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.17",
     "date-fns": "^2.30.0",
+    "japanese-holidays": "^1.0.10",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/japanese-holidays": "^1.0.3",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.3.4",
-    "autoprefixer": "^10.4.16",
+    "autoprefixer": "^10.4.20",
     "postcss": "^8.4.32",
     "sharp": "^0.32.6",
-    "tailwindcss": "^3.4.0",
+    "tailwindcss": "^3.4.17",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
     "vite": "^5.0.10",
     "vite-plugin-pwa": "^0.17.5"
-  },
-  "ts-node": {
-    "esm": true,
-    "experimentalSpecifierResolution": "node"
   },
   "engines": {
     "node": ">=18.0.0"

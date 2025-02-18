@@ -3,45 +3,38 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  base: '/',
+  build: {
+    assetsDir: 'assets',
+    sourcemap: true,
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'], // 追加
+      includeAssets: ['favicon.ico'],
       manifest: {
         name: '勤務管理アプリ',
         short_name: '勤務管理',
-        description: '30名程度の勤務管理アプリケーション', // 追加
-        theme_color: '#4A90E2',
         icons: [
           {
             src: '/icons/icon-192x192.png',
             sizes: '192x192',
             type: 'image/png',
-            purpose: 'any maskable' // 追加
+            purpose: 'any maskable'
           },
           {
             src: '/icons/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable' // 追加
+            purpose: 'any maskable'
           }
         ],
         start_url: '/',
         display: 'standalone',
-        background_color: '#ffffff'
+        background_color: '#ffffff',
+        theme_color: '#4A90E2'
       }
     })
-  ],
-  resolve: {  // 追加
-    alias: {
-      '@': '/src'
-    }
-  },
-  base: './', // '/' から './' に変更
-  build: {
-    outDir: 'dist',
-    assetsDir: 'assets',
-    sourcemap: true // 追加
-  }
+  ]
 })
