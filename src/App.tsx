@@ -210,139 +210,117 @@ const AttendanceApp: React.FC = () => {
   // Part 4: サブコンポーネント（TableView, CalendarView, Modals）
   //=====================================================================
 
-  // テーブルビューコンポーネント（エクセル方式）
-  const TableView = React.memo(() => {
-    useEffect(() => {
-      console.log("TableView mounted");
-      console.log("Selected employee:", selectedEmployee);
-      console.log("Current date:", currentDate);
-    }, []);
+// テーブルビューコンポーネント（エクセル方式）
+const TableView = React.memo(() => {
+  useEffect(() => {
+    console.log('TableView mounted');
+    console.log('Selected employee:', selectedEmployee);
+    console.log('Current date:', currentDate);
+  }, []);
 
-    const daysInMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth() + 1,
-      0
-    ).getDate();
+  const daysInMonth = new Date(
+    currentDate.getFullYear(),
+    currentDate.getMonth() + 1,
+    0
+  ).getDate();
 
-    const dates = Array.from(
-      { length: daysInMonth },
-      (_, i) =>
-        new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
-    );
+  const dates = Array.from({ length: daysInMonth }, (_, i) => 
+    new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
+  );
 
-    return (
-      <div className="flex flex-col h-full">
-        <div className="mb-4 flex justify-between items-center">
-          <select
-            value={selectedEmployee}
-            onChange={(e) => setSelectedEmployee(e.target.value)}
-            className="w-64 p-2 border rounded"
-          >
-            <option value="">全従業員を表示</option>
-            {employees.map((emp) => (
-              <option key={emp.id} value={emp.id.toString()}>
-                {emp.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="overflow-auto max-w-full">
-          <table className="table-fixed border-collapse w-full">
-            <thead className="sticky top-0 bg-white z-10">
-              <tr>
-                <th className="border p-4 sticky left-0 bg-white text-lg">
-                  従業員名
-                </th>
-                {dates.map((date) => (
-                  <th
-                    key={date.getTime()}
-                    className={`
-                    border p-2 min-w-[80px]
+  return (
+    <div className="flex flex-col h-full">
+      <div className="mb-4 flex justify-between items-center">
+        <select
+          value={selectedEmployee}
+          onChange={(e) => setSelectedEmployee(e.target.value)}
+          className="w-64 p-2 border rounded"
+        >
+          <option value="">全従業員を表示</option>
+          {employees.map((emp) => (
+            <option key={emp.id} value={emp.id.toString()}>
+              {emp.name}
+            </option>
+          ))}
+        </select>
+      </div>
+  
+      <div className="overflow-auto max-w-full">
+        <table className="border-collapse">
+          <thead className="sticky top-0 bg-white z-10">
+            <tr>
+              <th className="border p-2 sticky left-0 bg-white z-20 min-w-[100px] max-w-[120px]">
+                従業員名
+              </th>
+              {dates.map(date => (
+                <th 
+                  key={date.getTime()} 
+                  className={`
+                    border p-2 min-w-[80px] max-w-[90px]
                     ${getCellBackgroundColor(date).bg}
                   `}
-                  >
-                    <div
-                      className={`${getCellBackgroundColor(date).text} text-xl`}
-                    >
-                      {format(date, "d")}
-                      <span className="block text-base">
-                        (
-                        {
-                          ["日", "月", "火", "水", "木", "金", "土"][
-                            date.getDay()
-                          ]
-                        }
-                        )
-                        {isJapaneseHoliday(date) && (
-                          <span className="block">{getHolidayName(date)}</span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="text-sm mt-2">
-                      {Object.entries(calculateDailySummary(date)).map(
-                        ([type, count]) => (
-                          <div key={type} className="py-1">
-                            {workTypes.find((w) => w.id === type)?.label}:{" "}
-                            {count}
-                          </div>
-                        )
+                >
+                  <div className={`${getCellBackgroundColor(date).text} text-base truncate`}>
+                    {format(date, 'd')}
+                    <span className="block text-xs">
+                      {['日', '月', '火', '水', '木', '金', '土'][date.getDay()]}
+                      {isJapaneseHoliday(date) && (
+                        <span className="block truncate text-xs">
+                          {getHolidayName(date)}
+                        </span>
                       )}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {employees
-                .filter(
-                  (emp) =>
-                    !selectedEmployee || emp.id.toString() === selectedEmployee
-                )
-                .map((employee) => {
-                  return (
-                    <tr key={employee.id}>
-                      <td className="border p-2 sticky left-0 bg-white">
-                        {employee.name}
-                      </td>
-                      {dates.map((date) => {
-                        const record = attendanceData.find(
-                          (r) =>
-                            r.employeeId === employee.id.toString() &&
-                            r.date === format(date, "yyyy-MM-dd")
-                        );
-
-                        return (
-                          <td
-                            key={`${employee.id}-${date.getTime()}`}
-                            className={`
-                              border p-2 cursor-pointer
-                              ${getCellBackgroundColor(date).bg}
-                              ${getCellBackgroundColor(date).hover}
-                            `}
-                            onClick={() => {
-                              setSelectedCell({
-                                employeeId: employee.id,
-                                date,
-                              });
-                              setShowWorkTypeModal(true);
-                            }}
-                          >
-                            {record &&
-                              workTypes.find((w) => w.id === record.workType)
-                                ?.label}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
+                    </span>
+                  </div>
+                  <div className="text-xs">
+                    {Object.entries(calculateDailySummary(date)).map(([type, count]) => (
+                      <div key={type} className="truncate">
+                        {workTypes.find(w => w.id === type)?.label}: {count}
+                      </div>
+                    ))}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {employees
+              .filter(emp => !selectedEmployee || emp.id.toString() === selectedEmployee)
+              .map(employee => {
+                return (
+                  <tr key={employee.id}>
+                    <td className="border p-2 sticky left-0 bg-white whitespace-nowrap">{employee.name}</td>
+                    {dates.map(date => {
+                      const record = attendanceData.find(
+                        r => r.employeeId === employee.id.toString() &&
+                        r.date === format(date, 'yyyy-MM-dd')
+                      );
+                      
+                      return (
+                        <td
+                          key={`${employee.id}-${date.getTime()}`}
+                          className={`
+                            border p-2 cursor-pointer text-center h-12 w-[80px]
+                            ${getCellBackgroundColor(date).bg}
+                            ${getCellBackgroundColor(date).hover}
+                          `}
+                          onClick={() => {
+                            setSelectedCell({ employeeId: employee.id, date });
+                            setShowWorkTypeModal(true);
+                          }}
+                        >
+                          {record && workTypes.find(w => w.id === record.workType)?.label}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
       </div>
-    );
-  });
+    </div>
+  );
+});
 
   // CalendarViewコンポーネント
   const CalendarView = React.memo(() => {
