@@ -1,57 +1,163 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* src/index.cssまたはApp.cssに追加 */
 
-:root {
-  --calendar-min-height: 6rem;
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* カレンダー関連のスタイル */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background-color: #e5e7eb;
 }
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.calendar-header {
+  background-color: #f3f4f6;
+  padding: 0.5rem;
+  text-align: center;
+  font-weight: bold;
+}
+
+.calendar-cell {
+  background-color: white;
+  min-height: 120px;
+  padding: 0.5rem;
+  position: relative;
+}
+
+.calendar-cell-current {
+  background-color: white;
+}
+
+.calendar-cell-other {
+  background-color: #f9fafb;
+  color: #9ca3af;
+}
+
+.calendar-cell:hover {
   background-color: #f3f4f6;
 }
 
-#root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+/* スケジュール表示のスタイル */
+.schedule-item {
+  margin-top: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
-@layer components {
+/* モバイル対応のためのレスポンシブスタイル */
+@media (max-width: 768px) {
   .calendar-grid {
-    @apply grid grid-cols-7 gap-1;
+    grid-template-columns: repeat(7, 1fr);
   }
-
+  
   .calendar-cell {
-    @apply p-2 border rounded-sm min-h-[var(--calendar-min-height)];
+    min-height: 80px;
+    padding: 0.25rem;
   }
-
-  .calendar-cell-current {
-    @apply bg-white hover:bg-gray-50 cursor-pointer;
-  }
-
-  .calendar-cell-other {
-    @apply bg-gray-50 hover:bg-gray-100 cursor-pointer;
-  }
-
+  
   .calendar-header {
-    @apply text-center font-bold p-2;
+    padding: 0.25rem;
+    font-size: 0.875rem;
   }
-
-  .btn {
-    @apply px-4 py-2 rounded transition-colors duration-200;
+  
+  /* モバイル向けのナビゲーション調整 */
+  .container {
+    padding: 0.5rem;
   }
-
-  .btn-primary {
-    @apply btn bg-blue-500 text-white hover:bg-blue-600;
+  
+  .nav-button {
+    padding: 0.5rem;
+    font-size: 0.875rem;
   }
+}
 
-  .btn-secondary {
-    @apply btn bg-gray-200 text-gray-700 hover:bg-gray-300;
+/* テーブルビューの固定ヘッダーとスクロール対応 */
+.attendance-table-container {
+  overflow-x: auto;
+  max-height: calc(100vh - 200px);
+}
+
+.attendance-table th {
+  position: sticky;
+  top: 0;
+  background-color: white;
+  z-index: 10;
+}
+
+.attendance-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+}
+
+.attendance-table td:first-child {
+  position: sticky;
+  left: 0;
+  background-color: white;
+  z-index: 5;
+}
+
+/* アニメーション効果 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* トースト通知 */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  background-color: #4caf50;
+  color: white;
+  border-radius: 4px;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-in-out, fadeOut 0.5s ease-in-out 2.5s forwards;
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; transform: translateX(-50%); }
+  to { opacity: 0; transform: translate(-50%, 20px); }
+}
+
+/* 印刷用スタイル */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  body {
+    background-color: white;
+  }
+  
+  .container {
+    max-width: 100%;
+    padding: 0;
+  }
+  
+  .calendar-cell {
+    border: 1px solid #e5e7eb;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  th, td {
+    border: 1px solid #e5e7eb;
   }
 }
