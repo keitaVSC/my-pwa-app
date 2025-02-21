@@ -246,9 +246,9 @@ const AttendanceApp: React.FC = () => {
           <table className="table-fixed border-collapse w-full">
             <thead className="sticky top-0 bg-white z-10">
               <tr>
-                <th className="border p-2 sticky left-0 bg-white z-20 w-32">
-                  従業員名
-                </th>
+              <th className="border p-3 sticky left-0 bg-white z-20 w-36">
+                従業員名
+              </th>
                 {dates.map(date => (
                   <th 
                     key={date.getTime()} 
