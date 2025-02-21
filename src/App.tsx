@@ -4,11 +4,11 @@
 import React, { useState, useEffect } from "react";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
-import JapaneseHolidays from 'japanese-holidays';
-import Modal from './components/Modal';
+import JapaneseHolidays from "japanese-holidays";
+import Modal from "./components/Modal";
 
 // Japanese-holidaysの型定義
-declare module 'japanese-holidays' {
+declare module "japanese-holidays" {
   export function isHoliday(date: Date): string | undefined;
 }
 
@@ -27,22 +27,22 @@ const getHolidayName = (date: Date): string | null => {
 const getCellBackgroundColor = (date: Date) => {
   if (date.getDay() === 0 || isJapaneseHoliday(date)) {
     return {
-      bg: 'bg-red-50',
-      hover: 'hover:bg-red-100',
-      text: 'text-red-500'
+      bg: "bg-red-50",
+      hover: "hover:bg-red-100",
+      text: "text-red-500",
     };
   }
   if (date.getDay() === 6) {
     return {
-      bg: 'bg-blue-50',
-      hover: 'hover:bg-blue-100',
-      text: 'text-blue-500'
+      bg: "bg-blue-50",
+      hover: "hover:bg-blue-100",
+      text: "text-blue-500",
     };
   }
   return {
-    bg: '',
-    hover: 'hover:bg-gray-50',
-    text: ''
+    bg: "",
+    hover: "hover:bg-gray-50",
+    text: "",
   };
 };
 
@@ -140,19 +140,22 @@ const AttendanceApp: React.FC = () => {
   // State
   const [currentView, setCurrentView] = useState<View>("calendar");
   const [currentDate, setCurrentDate] = useState<Date>(() => {
-    console.log('Initializing currentDate');
+    console.log("Initializing currentDate");
     return new Date();
   });
   const [selectedEmployee, setSelectedEmployee] = useState<string>(() => {
-    console.log('Initializing selectedEmployee');
+    console.log("Initializing selectedEmployee");
     return "";
   });
-  const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>(() => {
-    console.log('Initializing attendanceData');
-    return [];
-  });
+  const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>(
+    () => {
+      console.log("Initializing attendanceData");
+      return [];
+    }
+  );
   const [showWorkTypeModal, setShowWorkTypeModal] = useState(false);
-  const [showAttendanceDetailModal, setShowAttendanceDetailModal] = useState(false);
+  const [showAttendanceDetailModal, setShowAttendanceDetailModal] =
+    useState(false);
   const [selectedCell, setSelectedCell] = useState<{
     employeeId: number;
     date: Date;
@@ -164,9 +167,9 @@ const AttendanceApp: React.FC = () => {
   } | null>(null);
 
   useEffect(() => {
-    console.log('App component mounted');
-    console.log('Current view:', currentView);
-    console.log('Attendance data:', attendanceData);
+    console.log("App component mounted");
+    console.log("Current view:", currentView);
+    console.log("Attendance data:", attendanceData);
   }, []);
 
   // Calendar Helper Functions
@@ -194,9 +197,9 @@ const AttendanceApp: React.FC = () => {
 
   // 日次集計を計算する関数
   const calculateDailySummary = (date: Date): DailySummary => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const records = attendanceData.filter(record => record.date === dateStr);
-    
+    const dateStr = format(date, "yyyy-MM-dd");
+    const records = attendanceData.filter((record) => record.date === dateStr);
+
     return records.reduce((acc, record) => {
       acc[record.workType] = (acc[record.workType] || 0) + 1;
       return acc;
@@ -204,15 +207,15 @@ const AttendanceApp: React.FC = () => {
   };
 
   //=====================================================================
-// Part 4: サブコンポーネント（TableView, CalendarView, Modals）
-//=====================================================================
+  // Part 4: サブコンポーネント（TableView, CalendarView, Modals）
+  //=====================================================================
 
   // テーブルビューコンポーネント（エクセル方式）
   const TableView = React.memo(() => {
     useEffect(() => {
-      console.log('TableView mounted');
-      console.log('Selected employee:', selectedEmployee);
-      console.log('Current date:', currentDate);
+      console.log("TableView mounted");
+      console.log("Selected employee:", selectedEmployee);
+      console.log("Current date:", currentDate);
     }, []);
 
     const daysInMonth = new Date(
@@ -221,8 +224,10 @@ const AttendanceApp: React.FC = () => {
       0
     ).getDate();
 
-    const dates = Array.from({ length: daysInMonth }, (_, i) => 
-      new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
+    const dates = Array.from(
+      { length: daysInMonth },
+      (_, i) =>
+        new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
     );
 
     return (
@@ -241,72 +246,91 @@ const AttendanceApp: React.FC = () => {
             ))}
           </select>
         </div>
-    
+
         <div className="overflow-auto max-w-full">
           <table className="table-fixed border-collapse w-full">
             <thead className="sticky top-0 bg-white z-10">
               <tr>
-              <th className="border p-4 sticky left-0 bg-white text-lg">
-                従業員名
-              </th>
-                {dates.map(date => (
-                 <th 
-                  key={date.getTime()} 
-                  className={`
-                    border p-4 min-w-[120px]
+                <th className="border p-4 sticky left-0 bg-white text-lg">
+                  従業員名
+                </th>
+                {dates.map((date) => (
+                  <th
+                    key={date.getTime()}
+                    className={`
+                    border p-2 min-w-[80px]
                     ${getCellBackgroundColor(date).bg}
                   `}
-                >
-                  <div className={`${getCellBackgroundColor(date).text} text-xl`}>
-                    {format(date, 'd')}
-                    <span className="block text-base">
-                      ({['日', '月', '火', '水', '木', '金', '土'][date.getDay()]})
-                      {isJapaneseHoliday(date) && (
-                        <span className="block">
-                          {getHolidayName(date)}
-                        </span>
+                  >
+                    <div
+                      className={`${getCellBackgroundColor(date).text} text-xl`}
+                    >
+                      {format(date, "d")}
+                      <span className="block text-base">
+                        (
+                        {
+                          ["日", "月", "火", "水", "木", "金", "土"][
+                            date.getDay()
+                          ]
+                        }
+                        )
+                        {isJapaneseHoliday(date) && (
+                          <span className="block">{getHolidayName(date)}</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="text-sm mt-2">
+                      {Object.entries(calculateDailySummary(date)).map(
+                        ([type, count]) => (
+                          <div key={type} className="py-1">
+                            {workTypes.find((w) => w.id === type)?.label}:{" "}
+                            {count}
+                          </div>
+                        )
                       )}
-                    </span>
-                  </div>
-                  <div className="text-sm mt-2">
-                    {Object.entries(calculateDailySummary(date)).map(([type, count]) => (
-                      <div key={type} className="py-1">
-                        {workTypes.find(w => w.id === type)?.label}: {count}
-                      </div>
-                    ))}
-                  </div>
-                </th>
+                    </div>
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {employees
-                .filter(emp => !selectedEmployee || emp.id.toString() === selectedEmployee)
-                .map(employee => {
+                .filter(
+                  (emp) =>
+                    !selectedEmployee || emp.id.toString() === selectedEmployee
+                )
+                .map((employee) => {
                   return (
                     <tr key={employee.id}>
-                      <td className="border p-2 sticky left-0 bg-white">{employee.name}</td>
-                      {dates.map(date => {
+                      <td className="border p-2 sticky left-0 bg-white">
+                        {employee.name}
+                      </td>
+                      {dates.map((date) => {
                         const record = attendanceData.find(
-                          r => r.employeeId === employee.id.toString() &&
-                          r.date === format(date, 'yyyy-MM-dd')
+                          (r) =>
+                            r.employeeId === employee.id.toString() &&
+                            r.date === format(date, "yyyy-MM-dd")
                         );
-                        
+
                         return (
                           <td
                             key={`${employee.id}-${date.getTime()}`}
                             className={`
-                              border p-4 cursor-pointer text-center text-xl
-                              min-h-[50px] min-w-[120px]
+                              border p-2 cursor-pointer
                               ${getCellBackgroundColor(date).bg}
                               ${getCellBackgroundColor(date).hover}
                             `}
                             onClick={() => {
-                              setSelectedCell({ employeeId: employee.id, date });
+                              setSelectedCell({
+                                employeeId: employee.id,
+                                date,
+                              });
                               setShowWorkTypeModal(true);
                             }}
                           >
-                            {record && workTypes.find(w => w.id === record.workType)?.label}
+                            {record &&
+                              workTypes.find((w) => w.id === record.workType)
+                                ?.label}
                           </td>
                         );
                       })}
@@ -323,8 +347,11 @@ const AttendanceApp: React.FC = () => {
   // CalendarViewコンポーネント
   const CalendarView = React.memo(() => {
     useEffect(() => {
-      console.log('CalendarView mounted');
-      console.log('Generated dates:', generateCalendarDates(currentDate.getFullYear(), currentDate.getMonth()));
+      console.log("CalendarView mounted");
+      console.log(
+        "Generated dates:",
+        generateCalendarDates(currentDate.getFullYear(), currentDate.getMonth())
+      );
     }, []);
 
     return (
@@ -335,34 +362,43 @@ const AttendanceApp: React.FC = () => {
               {day}
             </div>
           ))}
-          {generateCalendarDates(currentDate.getFullYear(), currentDate.getMonth()).map(({ date, isCurrentMonth }) => {
+          {generateCalendarDates(
+            currentDate.getFullYear(),
+            currentDate.getMonth()
+          ).map(({ date, isCurrentMonth }) => {
             const dailySummary = calculateDailySummary(date);
             return (
               <div
                 key={date.toISOString()}
                 onClick={() => {
-                  const dateStr = format(date, 'yyyy-MM-dd');
-                  const records = attendanceData.filter(record => record.date === dateStr);
+                  const dateStr = format(date, "yyyy-MM-dd");
+                  const records = attendanceData.filter(
+                    (record) => record.date === dateStr
+                  );
                   setSelectedDateDetails({ date, records });
                   setShowAttendanceDetailModal(true);
                 }}
                 className={`calendar-cell ${
-                  isCurrentMonth ? 'calendar-cell-current' : 'calendar-cell-other'
+                  isCurrentMonth
+                    ? "calendar-cell-current"
+                    : "calendar-cell-other"
                 } ${getCellBackgroundColor(date).text}`}
               >
                 <div className="font-bold">
                   {date.getDate()}
                   {isJapaneseHoliday(date) && (
-                    <span className="ml-1 text-xs">
-                      {getHolidayName(date)}
-                    </span>
+                    <span className="ml-1 text-xs">{getHolidayName(date)}</span>
                   )}
                 </div>
                 <div className="text-xs space-y-1 mt-1">
                   {Object.entries(dailySummary).map(([type, count]) => {
-                    const workTypeLabel = workTypes.find(w => w.id === type)?.label || type;
+                    const workTypeLabel =
+                      workTypes.find((w) => w.id === type)?.label || type;
                     return (
-                      <div key={type} className="bg-gray-50 p-1 rounded text-gray-600">
+                      <div
+                        key={type}
+                        className="bg-gray-50 p-1 rounded text-gray-600"
+                      >
                         {workTypeLabel}: {count}名
                       </div>
                     );
@@ -378,32 +414,38 @@ const AttendanceApp: React.FC = () => {
 
   // 勤務登録モーダル
   const WorkTypeSelectionModal = () => {
-    const [selectedWorkType, setSelectedWorkType] = useState('');
+    const [selectedWorkType, setSelectedWorkType] = useState("");
 
     useEffect(() => {
-      console.log('WorkTypeSelectionModal mounted');
-      console.log('Selected cell:', selectedCell);
+      console.log("WorkTypeSelectionModal mounted");
+      console.log("Selected cell:", selectedCell);
     }, []);
 
     const handleSubmit = () => {
       if (!selectedCell || !selectedWorkType) return;
 
-      const dateStr = format(selectedCell.date, 'yyyy-MM-dd');
+      const dateStr = format(selectedCell.date, "yyyy-MM-dd");
       const newAttendanceData = attendanceData.filter(
-        record => !(record.employeeId === selectedCell.employeeId.toString() && record.date === dateStr)
+        (record) =>
+          !(
+            record.employeeId === selectedCell.employeeId.toString() &&
+            record.date === dateStr
+          )
       );
 
       const newRecord: AttendanceRecord = {
         employeeId: selectedCell.employeeId.toString(),
         date: dateStr,
         workType: selectedWorkType,
-        employeeName: employees.find(emp => emp.id === selectedCell.employeeId)?.name
+        employeeName: employees.find(
+          (emp) => emp.id === selectedCell.employeeId
+        )?.name,
       };
 
       setAttendanceData([...newAttendanceData, newRecord]);
       setShowWorkTypeModal(false);
       setSelectedCell(null);
-      setSelectedWorkType('');
+      setSelectedWorkType("");
     };
 
     return (
@@ -416,8 +458,12 @@ const AttendanceApp: React.FC = () => {
           <div className="p-4">
             <h3 className="text-lg font-bold mb-4">勤務区分の登録</h3>
             <p className="mb-4">
-              {employees.find(emp => emp.id === selectedCell.employeeId)?.name}さん
-              {format(selectedCell.date, 'M月d日')}の勤務区分を選択してください
+              {
+                employees.find((emp) => emp.id === selectedCell.employeeId)
+                  ?.name
+              }
+              さん
+              {format(selectedCell.date, "M月d日")}の勤務区分を選択してください
             </p>
             <select
               value={selectedWorkType}
@@ -425,8 +471,10 @@ const AttendanceApp: React.FC = () => {
               className="w-full p-2 border rounded mb-4"
             >
               <option value="">選択してください</option>
-              {workTypes.map(type => (
-                <option key={type.id} value={type.id}>{type.label}</option>
+              {workTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.label}
+                </option>
               ))}
             </select>
             <div className="flex justify-end gap-2">
@@ -453,8 +501,8 @@ const AttendanceApp: React.FC = () => {
   // 日付詳細モーダル
   const AttendanceDetailModal = () => {
     useEffect(() => {
-      console.log('AttendanceDetailModal mounted');
-      console.log('Selected date details:', selectedDateDetails);
+      console.log("AttendanceDetailModal mounted");
+      console.log("Selected date details:", selectedDateDetails);
     }, []);
 
     if (!selectedDateDetails) return null;
@@ -463,45 +511,53 @@ const AttendanceApp: React.FC = () => {
       <Modal
         isOpen={showAttendanceDetailModal}
         onClose={() => setShowAttendanceDetailModal(false)}
-        title={`${format(selectedDateDetails.date, 'M月d日')}の勤務状況`}
+        title={`${format(selectedDateDetails.date, "M月d日")}の勤務状況`}
       >
         <div className="space-y-4">
-          {Object.entries(calculateDailySummary(selectedDateDetails.date)).map(([type, count]) => {
-            const workTypeLabel = workTypes.find(w => w.id === type)?.label || type;
-            const records = selectedDateDetails.records.filter(r => r.workType === type);
-            
-            return (
-              <div key={type} className="border-b pb-2">
-                <div className="font-bold">{workTypeLabel}: {count}名</div>
-                <div className="text-sm text-gray-600">
-                  {records.map(record => (
-                    <div key={record.employeeId}>{record.employeeName}</div>
-                  ))}
+          {Object.entries(calculateDailySummary(selectedDateDetails.date)).map(
+            ([type, count]) => {
+              const workTypeLabel =
+                workTypes.find((w) => w.id === type)?.label || type;
+              const records = selectedDateDetails.records.filter(
+                (r) => r.workType === type
+              );
+
+              return (
+                <div key={type} className="border-b pb-2">
+                  <div className="font-bold">
+                    {workTypeLabel}: {count}名
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {records.map((record) => (
+                      <div key={record.employeeId}>{record.employeeName}</div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            }
+          )}
         </div>
       </Modal>
     );
   };
 
   //=====================================================================
-// Part 5: メイン実装・エクスポート処理
-//=====================================================================
+  // Part 5: メイン実装・エクスポート処理
+  //=====================================================================
 
   // エクセルエクスポート機能
   const exportToExcel = () => {
-    const data = attendanceData.map(record => ({
-      従業員名: employees.find(emp => emp.id.toString() === record.employeeId)?.name,
+    const data = attendanceData.map((record) => ({
+      従業員名: employees.find((emp) => emp.id.toString() === record.employeeId)
+        ?.name,
       日付: record.date,
-      勤務区分: workTypes.find(w => w.id === record.workType)?.label
+      勤務区分: workTypes.find((w) => w.id === record.workType)?.label,
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "勤務記録");
-    XLSX.writeFile(wb, `勤務記録_${format(currentDate, 'yyyy年M月')}.xlsx`);
+    XLSX.writeFile(wb, `勤務記録_${format(currentDate, "yyyy年M月")}.xlsx`);
   };
 
   return (
@@ -512,7 +568,9 @@ const AttendanceApp: React.FC = () => {
             <button
               onClick={() => setCurrentView("calendar")}
               className={`px-4 py-2 rounded ${
-                currentView === "calendar" ? "bg-blue-500 text-white" : "bg-gray-200"
+                currentView === "calendar"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200"
               }`}
             >
               全体カレンダー
@@ -520,7 +578,9 @@ const AttendanceApp: React.FC = () => {
             <button
               onClick={() => setCurrentView("table")}
               className={`px-4 py-2 rounded ${
-                currentView === "table" ? "bg-blue-500 text-white" : "bg-gray-200"
+                currentView === "table"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200"
               }`}
             >
               勤務表
@@ -528,16 +588,30 @@ const AttendanceApp: React.FC = () => {
           </div>
           <div className="flex gap-4">
             <button
-              onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1))}
+              onClick={() =>
+                setCurrentDate(
+                  new Date(
+                    currentDate.getFullYear(),
+                    currentDate.getMonth() - 1
+                  )
+                )
+              }
               className="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
             >
               前月
             </button>
             <span className="font-bold">
-              {format(currentDate, 'yyyy年M月')}
+              {format(currentDate, "yyyy年M月")}
             </span>
             <button
-              onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1))}
+              onClick={() =>
+                setCurrentDate(
+                  new Date(
+                    currentDate.getFullYear(),
+                    currentDate.getMonth() + 1
+                  )
+                )
+              }
               className="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
             >
               次月
