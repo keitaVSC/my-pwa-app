@@ -1,7 +1,7 @@
 // src/App.tsx
 
-import React, { useState, useEffect } from "react";
-import { format } from "date-fns";
+import React, { useState, useEffect, KeyboardEvent, MouseEvent } from "react";
+import { format, parse, isSameMonth } from "date-fns";
 import * as XLSX from "xlsx";
 import JapaneseHolidays from "japanese-holidays";
 import Modal from "./components/Modal";
@@ -94,6 +94,21 @@ interface DailySummary {
 
 // 表示モード
 type View = "calendar" | "table";
+
+// カラー選択オプション
+interface ColorOption {
+  name: string;
+  value: string;
+}
+
+// プリセットカラー
+const PRESET_COLORS: ColorOption[] = [
+  { name: "青", value: "#4A90E2" },
+  { name: "赤", value: "#E24A4A" },
+  { name: "緑", value: "#4AE27A" },
+  { name: "オレンジ", value: "#E2A14A" },
+  { name: "ピンク", value: "#E24A9E" }
+];
 
 //=====================================================================
 // Part 3: 初期データ
@@ -199,6 +214,10 @@ const AttendanceApp: React.FC = () => {
   const [confirmModalAction, setConfirmModalAction] = useState<() => void>(() => {});
   const [successMessage, setSuccessMessage] = useState("");
 
+  // ストレージ使用状況表示用の状態（新規追加）
+  const [showStorageUsageModal, setShowStorageUsageModal] = useState(false);
+  const [storageUsageData, setStorageUsageData] = useState<any>(null);
+
   // セル・日付選択関連
   const [selectedCell, setSelectedCell] = useState<{
     employeeId: number;
@@ -223,24 +242,47 @@ const AttendanceApp: React.FC = () => {
     employeeId: number;
     date: Date;
   }[]>([]);
+  
+  // キー状態
+  const [isCtrlPressed, setIsCtrlPressed] = useState<boolean>(false);
 
   // トースト通知
   const [toast, setToast] = useState<{
     show: boolean;
     message: string;
-    type: "success" | "error" | "info";
+    type: "success" | "error" | "info" | "warning";
   }>({
     show: false,
     message: "",
     type: "info",
   });
-
   //---------------------------------------------------------------
   // 副作用（useEffect）
   //---------------------------------------------------------------
   // コンポーネントマウント時の処理
   useEffect(() => {
     console.log("App component mounted");
+    
+    // キーボードイベントリスナーの設定
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Control') {
+        setIsCtrlPressed(true);
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control') {
+        setIsCtrlPressed(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown as any);
+    window.addEventListener('keyup', handleKeyUp as any);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown as any);
+      window.removeEventListener('keyup', handleKeyUp as any);
+    };
   }, []);
 
   // 状態変更時のLocalStorage保存
@@ -270,6 +312,17 @@ const AttendanceApp: React.FC = () => {
 
   useEffect(() => {
     StorageService.saveData(STORAGE_KEYS.ADMIN_MODE, isAdminMode);
+  }, [isAdminMode]);
+
+  // ストレージ使用状況の確認（新規追加）
+  useEffect(() => {
+    // 管理者モードがオンになった時に使用状況を確認
+    if (isAdminMode) {
+      const warning = StorageService.checkStorageWarning(70);
+      if (warning) {
+        showToast(warning, "warning");
+      }
+    }
   }, [isAdminMode]);
 
   // トースト通知の自動非表示
@@ -328,12 +381,22 @@ const AttendanceApp: React.FC = () => {
     return scheduleData.filter(schedule => schedule.date === dateStr);
   };
 
+  // 特定の従業員と日付の予定を取得
+  const getEmployeeScheduleForDate = (employeeId: number, date: Date) => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    return scheduleData.filter(
+      schedule => 
+        schedule.date === dateStr && 
+        (schedule.employeeId === employeeId.toString() || schedule.employeeId === "")
+    );
+  };
+
   // トースト通知を表示
-  const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
+  const showToast = (message: string, type: "success" | "error" | "info" | "warning" = "info") => {
     setToast({
       show: true,
       message,
-      type,
+      type: type as any,
     });
   };
 
@@ -350,6 +413,72 @@ const AttendanceApp: React.FC = () => {
     setShowSuccessModal(true);
   };
 
+  // ストレージ使用状況を表示する関数（新規追加）
+  const showStorageUsage = () => {
+    const usage = StorageService.getStorageUsage();
+    setStorageUsageData(usage);
+    setShowStorageUsageModal(true);
+  };
+
+  // セルの選択・非選択を切り替える
+  const toggleCellSelection = (employeeId: number, date: Date, ctrlKey: boolean = false) => {
+    if (!isBulkEditMode) return;
+    
+    const cellIndex = selectedCells.findIndex(
+      cell => cell.employeeId === employeeId && cell.date.getTime() === date.getTime()
+    );
+    
+    if (cellIndex !== -1) {
+      // すでに選択されている場合は削除
+      setSelectedCells(prev => prev.filter((_, i) => i !== cellIndex));
+    } else {
+      // 選択されていない場合は追加
+      // Ctrlキーが押されていない場合は選択をクリア
+      if (!ctrlKey && selectedCells.length > 0) {
+        setSelectedCells([{ employeeId, date }]);
+      } else {
+        setSelectedCells(prev => [...prev, { employeeId, date }]);
+      }
+    }
+  };
+  
+  // セルが選択されているかを確認
+  const isCellSelected = (employeeId: number, date: Date) => {
+    return selectedCells.some(
+      cell => cell.employeeId === employeeId && cell.date.getTime() === date.getTime()
+    );
+  };
+
+  // 全セルを選択
+  const selectAllCellsForEmployee = (employeeId: number) => {
+    if (!isBulkEditMode) return;
+    
+    const daysInMonth = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() + 1,
+      0
+    ).getDate();
+    
+    const dates = Array.from({ length: daysInMonth }, (_, i) => 
+      new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
+    );
+    
+    const newSelectedCells = dates.map(date => ({
+      employeeId,
+      date
+    }));
+    
+    setSelectedCells(newSelectedCells);
+  };
+  
+  // 従業員の全セルの選択を解除
+  const clearSelectionForEmployee = (employeeId: number) => {
+    if (!isBulkEditMode) return;
+    
+    setSelectedCells(prev => 
+      prev.filter(cell => cell.employeeId !== employeeId)
+    );
+  };
   //---------------------------------------------------------------
   // データ操作関数
   //---------------------------------------------------------------
@@ -369,26 +498,7 @@ const AttendanceApp: React.FC = () => {
     showToast("エクセルファイルのエクスポートが完了しました", "success");
   };
 
-  // 予定データをエクスポート
-  const exportScheduleToExcel = () => {
-    const data = scheduleData.map((schedule) => ({
-      従業員名: schedule.employeeId 
-        ? employees.find((emp) => emp.id.toString() === schedule.employeeId)?.name
-        : "全員",
-      日付: schedule.date,
-      タイトル: schedule.title,
-      詳細: schedule.details || "",
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "予定");
-    XLSX.writeFile(wb, `予定_${format(currentDate, "yyyy年M月")}.xlsx`);
-    
-    showToast("予定のエクスポートが完了しました", "success");
-  };
-
-  // データのリセット
+  // 全データリセット
   const resetAllData = () => {
     showConfirm("全てのデータをリセットしますか？この操作は元に戻せません。", () => {
       setAttendanceData([]);
@@ -398,7 +508,44 @@ const AttendanceApp: React.FC = () => {
       showSuccess("全てのデータをリセットしました");
     });
   };
-
+  
+  // 月次データをリセット
+  const resetMonthData = () => {
+    const targetMonth = format(currentDate, "yyyy-MM");
+    
+    showConfirm(`${format(currentDate, "yyyy年M月")}のデータのみをリセットしますか？この操作は元に戻せません。`, () => {
+      // 当月の勤務データをフィルタリング
+      const filteredAttendanceData = attendanceData.filter(record => {
+        const recordDate = parse(record.date, "yyyy-MM-dd", new Date());
+        return !isSameMonth(recordDate, currentDate);
+      });
+      
+      // 当月の予定データをフィルタリング
+      const filteredScheduleData = scheduleData.filter(schedule => {
+        const scheduleDate = parse(schedule.date, "yyyy-MM-dd", new Date());
+        return !isSameMonth(scheduleDate, currentDate);
+      });
+      
+      setAttendanceData(filteredAttendanceData);
+      setScheduleData(filteredScheduleData);
+      
+      StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, filteredAttendanceData);
+      StorageService.saveData(STORAGE_KEYS.SCHEDULE_DATA, filteredScheduleData);
+      
+      showSuccess(`${format(currentDate, "yyyy年M月")}のデータをリセットしました`);
+    });
+  };
+  
+  // 予定の削除
+  const deleteSchedule = (scheduleId: string) => {
+    showConfirm("この予定を削除しますか？", () => {
+      const newScheduleData = scheduleData.filter(item => item.id !== scheduleId);
+      setScheduleData(newScheduleData);
+      setShowScheduleModal(false);
+      setSelectedScheduleItem(null);
+      showToast("予定を削除しました", "info");
+    });
+  };
   //---------------------------------------------------------------
   // サブコンポーネント
   //---------------------------------------------------------------
@@ -414,44 +561,59 @@ const AttendanceApp: React.FC = () => {
       new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
     );
     
-    // セルの選択・非選択を切り替える
-    const toggleCellSelection = (employeeId: number, date: Date) => {
+    // 同じ従業員の週区切りでセルを選択
+    const selectWeekCells = (employeeId: number, startDate: Date) => {
       if (!isBulkEditMode) return;
       
-      const cellIndex = selectedCells.findIndex(
-        cell => cell.employeeId === employeeId && cell.date.getTime() === date.getTime()
-      );
+      // 週の開始日（日曜日）
+      const startOfWeek = new Date(startDate);
+      startOfWeek.setDate(startDate.getDate() - startDate.getDay());
       
-      if (cellIndex !== -1) {
-        // すでに選択されている場合は削除
-        setSelectedCells(prev => prev.filter((_, i) => i !== cellIndex));
-      } else {
-        // 選択されていない場合は追加
-        setSelectedCells(prev => [...prev, { employeeId, date }]);
+      // 週の終了日（土曜日）
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      
+      // 現在の月に含まれる週の日付を取得
+      const weekDates = [];
+      let currentDate = new Date(startOfWeek);
+      
+      while (currentDate <= endOfWeek) {
+        // 当月の日付のみを対象にする
+        if (currentDate.getMonth() === startDate.getMonth()) {
+          weekDates.push(new Date(currentDate));
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
       }
-    };
-    
-    // セルが選択されているかを確認
-    const isCellSelected = (employeeId: number, date: Date) => {
-      return selectedCells.some(
-        cell => cell.employeeId === employeeId && cell.date.getTime() === date.getTime()
-      );
-    };
-    
-    // 特定の日付の予定を取得
-    const getEmployeeScheduleForDate = (employeeId: number, date: Date) => {
-      const dateStr = format(date, "yyyy-MM-dd");
-      return scheduleData.filter(
-        schedule => 
-          schedule.date === dateStr && 
-          (schedule.employeeId === employeeId.toString() || schedule.employeeId === "")
-      );
+      
+      // 既存の選択に追加（Ctrlキーが押されている場合）または置き換え
+      if (isCtrlPressed) {
+        const newSelections = weekDates.map(date => ({
+          employeeId,
+          date
+        }));
+        
+        // 既に選択されているセルを除外
+        const filteredNewSelections = newSelections.filter(
+          newSel => !selectedCells.some(
+            existSel => 
+              existSel.employeeId === newSel.employeeId && 
+              existSel.date.getTime() === newSel.date.getTime()
+          )
+        );
+        
+        setSelectedCells([...selectedCells, ...filteredNewSelections]);
+      } else {
+        setSelectedCells(weekDates.map(date => ({
+          employeeId,
+          date
+        })));
+      }
     };
 
     return (
       <div className="flex flex-col h-full">
-        <div className="mb-4 flex justify-between items-center">
-          <div className="flex gap-2 items-center">
+        <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
+          <div className="flex gap-2 items-center flex-wrap">
             <select
               value={selectedEmployee}
               onChange={(e) => setSelectedEmployee(e.target.value)}
@@ -466,7 +628,7 @@ const AttendanceApp: React.FC = () => {
             </select>
             
             {isAdminMode && (
-              <div className="flex items-center gap-2 ml-4">
+              <div className="flex items-center gap-2 ml-4 flex-wrap">
                 <button
                   onClick={() => {
                     setIsBulkEditMode(!isBulkEditMode);
@@ -481,17 +643,39 @@ const AttendanceApp: React.FC = () => {
                   {isBulkEditMode ? '一括編集中' : '一括編集'}
                 </button>
                 
-                {isBulkEditMode && selectedCells.length > 0 && (
-                  <button
-                    onClick={() => setSelectedCells([])}
-                    className="px-3 py-1 rounded bg-gray-200"
-                  >
-                    選択解除 ({selectedCells.length})
-                  </button>
+                {isBulkEditMode && (
+                  <>
+                    <button
+                      onClick={() => setSelectedCells([])}
+                      className="px-3 py-1 rounded bg-gray-200"
+                      disabled={selectedCells.length === 0}
+                    >
+                      選択解除 {selectedCells.length > 0 && `(${selectedCells.length})`}
+                    </button>
+                    
+                    {selectedCells.length > 0 && (
+                      <button
+                        onClick={() => {
+                          // 勤務区分選択モーダルを表示
+                          setShowWorkTypeModal(true);
+                        }}
+                        className="px-3 py-1 rounded bg-blue-500 text-white"
+                      >
+                        勤務区分を適用
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}
           </div>
+          
+          {isBulkEditMode && (
+            <div className="text-sm text-gray-600 mt-2 mb-2">
+              <p>※ Ctrlキーを押しながらクリックで複数選択できます。セルをダブルクリックすると週単位で選択できます。</p>
+              <p>※ 従業員名をクリックすると、その従業員の全日程を選択できます。</p>
+            </div>
+          )}
         </div>
         
         <div className="overflow-auto max-w-full attendance-table-container">
@@ -535,9 +719,38 @@ const AttendanceApp: React.FC = () => {
               {employees
                 .filter(emp => !selectedEmployee || emp.id.toString() === selectedEmployee)
                 .map(employee => {
+                  // この従業員の選択されたセルの数
+                  const selectedCount = selectedCells.filter(
+                    cell => cell.employeeId === employee.id
+                  ).length;
+                  
                   return (
                     <tr key={employee.id}>
-                      <td className="border p-2 whitespace-nowrap">{employee.name}</td>
+                      <td 
+                        className={`
+                          border p-2 whitespace-nowrap
+                          ${isBulkEditMode ? 'cursor-pointer hover:bg-gray-100' : ''}
+                        `}
+                        onClick={() => {
+                          if (isBulkEditMode) {
+                            // 既に全て選択されている場合は解除、そうでなければ全て選択
+                            if (selectedCount === dates.length) {
+                              clearSelectionForEmployee(employee.id);
+                            } else {
+                              selectAllCellsForEmployee(employee.id);
+                            }
+                          }
+                        }}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span>{employee.name}</span>
+                          {isBulkEditMode && selectedCount > 0 && (
+                            <span className="text-xs bg-blue-100 px-1 rounded">
+                              {selectedCount}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       {dates.map(date => {
                         const record = attendanceData.find(
                           r => r.employeeId === employee.id.toString() &&
@@ -556,12 +769,17 @@ const AttendanceApp: React.FC = () => {
                               ${getCellBackgroundColor(date).hover}
                               ${isBulkEditMode && isSelected ? 'bg-blue-100 border-2 border-blue-500' : ''}
                             `}
-                            onClick={() => {
+                            onClick={(e) => {
                               if (isBulkEditMode) {
-                                toggleCellSelection(employee.id, date);
+                                toggleCellSelection(employee.id, date, e.ctrlKey || isCtrlPressed);
                               } else {
                                 setSelectedCell({ employeeId: employee.id, date });
                                 setShowWorkTypeModal(true);
+                              }
+                            }}
+                            onDoubleClick={() => {
+                              if (isBulkEditMode) {
+                                selectWeekCells(employee.id, date);
                               }
                             }}
                           >
@@ -580,6 +798,12 @@ const AttendanceApp: React.FC = () => {
                                       className="text-xs px-1 py-0.5 rounded truncate text-white"
                                       style={{ backgroundColor: schedule.color || '#4A90E2' }}
                                       title={schedule.title}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedScheduleDate(date);
+                                        setSelectedScheduleItem(schedule);
+                                        setShowScheduleModal(true);
+                                      }}
                                     >
                                       {schedule.title}
                                     </div>
@@ -604,7 +828,6 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   });
-
   // CalendarViewコンポーネント
   const CalendarView = React.memo(() => {
     return (
@@ -716,7 +939,6 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   });
-
   //---------------------------------------------------------------
   // モーダルコンポーネント
   //---------------------------------------------------------------
@@ -737,10 +959,52 @@ const AttendanceApp: React.FC = () => {
         } else {
           setSelectedWorkType("");
         }
+      } else if (showWorkTypeModal && selectedCells.length > 0 && isBulkEditMode) {
+        // 一括編集モードの場合は空欄からスタート
+        setSelectedWorkType("");
       }
-    }, [showWorkTypeModal, selectedCell]);
+    }, [showWorkTypeModal, selectedCell, selectedCells, isBulkEditMode]);
 
     const handleSubmit = () => {
+      // 一括編集モードの場合
+      if (isBulkEditMode && selectedCells.length > 0) {
+        if (!selectedWorkType) return;
+        
+        const newAttendanceData = [...attendanceData];
+        
+        selectedCells.forEach(cell => {
+          const dateStr = format(cell.date, "yyyy-MM-dd");
+          
+          // 既存のレコードを除外
+          const recordIndex = newAttendanceData.findIndex(
+            record => record.employeeId === cell.employeeId.toString() && record.date === dateStr
+          );
+          
+          if (recordIndex !== -1) {
+            newAttendanceData.splice(recordIndex, 1);
+          }
+          
+          // 新しいレコードを追加
+          const newRecord: AttendanceRecord = {
+            employeeId: cell.employeeId.toString(),
+            date: dateStr,
+            workType: selectedWorkType,
+            employeeName: employees.find(emp => emp.id === cell.employeeId)?.name,
+          };
+          
+          newAttendanceData.push(newRecord);
+        });
+        
+        setAttendanceData(newAttendanceData);
+        setShowWorkTypeModal(false);
+        setSelectedCells([]);
+        setSelectedWorkType("");
+        
+        showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
+        return;
+      }
+      
+      // 通常の編集モード
       if (!selectedCell || !selectedWorkType) return;
 
       const dateStr = format(selectedCell.date, "yyyy-MM-dd");
@@ -760,6 +1024,7 @@ const AttendanceApp: React.FC = () => {
           (emp) => emp.id === selectedCell.employeeId
         )?.name,
       };
+
       setAttendanceData([...newAttendanceData, newRecord]);
       setShowWorkTypeModal(false);
       setSelectedCell(null);
@@ -769,6 +1034,24 @@ const AttendanceApp: React.FC = () => {
     };
 
     const handleDelete = () => {
+      if (isBulkEditMode && selectedCells.length > 0) {
+        showConfirm(`選択された${selectedCells.length}件の勤務区分を削除しますか？`, () => {
+          const newAttendanceData = attendanceData.filter(record => {
+            return !selectedCells.some(cell => 
+              cell.employeeId.toString() === record.employeeId && 
+              format(cell.date, "yyyy-MM-dd") === record.date
+            );
+          });
+          
+          setAttendanceData(newAttendanceData);
+          setShowWorkTypeModal(false);
+          setSelectedCells([]);
+          
+          showToast(`${selectedCells.length}件の勤務区分を削除しました`, "info");
+        });
+        return;
+      }
+      
       if (!selectedCell) return;
       
       const dateStr = format(selectedCell.date, "yyyy-MM-dd");
@@ -786,61 +1069,101 @@ const AttendanceApp: React.FC = () => {
     return (
       <Modal
         isOpen={showWorkTypeModal}
-        onClose={() => setShowWorkTypeModal(false)}
-        title="勤務区分の選択"
+        onClose={() => {
+          setShowWorkTypeModal(false);
+          setSelectedCell(null);
+          if (isBulkEditMode) {
+            setSelectedCells([]);
+          }
+        }}
+        title={isBulkEditMode && selectedCells.length > 0 ? "勤務区分の一括設定" : "勤務区分の選択"}
       >
-        {selectedCell && (
-          <div className="p-4">
-            <h3 className="text-lg font-bold mb-4">勤務区分の登録</h3>
-            <p className="mb-4">
-              {
-                employees.find((emp) => emp.id === selectedCell.employeeId)
-                  ?.name
-              }
-              さん
-              {format(selectedCell.date, "M月d日")}の勤務区分を選択してください
-            </p>
-            <select
-              value={selectedWorkType}
-              onChange={(e) => setSelectedWorkType(e.target.value)}
-              className="w-full p-2 border rounded mb-4"
+        <div className="p-4">
+          {isBulkEditMode && selectedCells.length > 0 ? (
+            <>
+              <h3 className="text-lg font-bold mb-4">勤務区分の一括登録</h3>
+              <p className="mb-4">
+                選択された {selectedCells.length} 件のセルに適用する勤務区分を選択してください。
+              </p>
+            
+              <div className="max-h-40 overflow-y-auto mb-4 border p-2 rounded">
+                {selectedCells.map((cell, index) => {
+                  const emp = employees.find(e => e.id === cell.employeeId);
+                  return (
+                    <div key={index} className="text-sm">
+                      {emp?.name} / {format(cell.date, "M月d日")}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : selectedCell && (
+            <>
+              <h3 className="text-lg font-bold mb-4">勤務区分の登録</h3>
+              <p className="mb-4">
+                {
+                  employees.find((emp) => emp.id === selectedCell.employeeId)
+                    ?.name
+                }
+                さん
+                {format(selectedCell.date, "M月d日")}の勤務区分を選択してください
+              </p>
+            </>
+          )}
+          
+          <select
+            value={selectedWorkType}
+            onChange={(e) => setSelectedWorkType(e.target.value)}
+            className="w-full p-2 border rounded mb-4"
+          >
+            <option value="">選択してください</option>
+            {workTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+          <div className="flex justify-end gap-2">
+            {(selectedWorkType || (selectedCell && attendanceData.some(
+              record => record.employeeId === selectedCell.employeeId.toString() && 
+                       record.date === format(selectedCell.date, "yyyy-MM-dd")
+            )) || (selectedCells.length > 0 && selectedCells.some(cell => 
+              attendanceData.some(
+                record => record.employeeId === cell.employeeId.toString() && 
+                         record.date === format(cell.date, "yyyy-MM-dd")
+              )
+            ))) && (
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                削除
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setShowWorkTypeModal(false);
+                setSelectedCell(null);
+                if (isBulkEditMode) {
+                  setSelectedCells([]);
+                }
+              }}
+              className="px-4 py-2 bg-gray-200 rounded"
             >
-              <option value="">選択してください</option>
-              {workTypes.map((type) => (
-                <option key={type.id} value={type.id}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-            <div className="flex justify-end gap-2">
-              {selectedWorkType && (
-                <button
-                  onClick={handleDelete}
-                  className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                >
-                  削除
-                </button>
-              )}
-              <button
-                onClick={() => setShowWorkTypeModal(false)}
-                className="px-4 py-2 bg-gray-200 rounded"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={handleSubmit}
-                className="px-4 py-2 bg-blue-500 text-white rounded"
-                disabled={!selectedWorkType}
-              >
-                登録
-              </button>
-            </div>
+              キャンセル
+            </button>
+            <button
+              onClick={handleSubmit}
+              className="px-4 py-2 bg-blue-500 text-white rounded"
+              disabled={!selectedWorkType}
+            >
+              {isBulkEditMode && selectedCells.length > 0 ? "一括適用" : "登録"}
+            </button>
           </div>
-        )}
+        </div>
       </Modal>
     );
   };
-
   // 日付詳細モーダル
   const AttendanceDetailModal = () => {
     if (!selectedDateDetails) return null;
@@ -919,21 +1242,25 @@ const AttendanceApp: React.FC = () => {
                     {schedule.details && (
                       <div className="text-sm text-gray-600 mt-1">{schedule.details}</div>
                     )}
-                    {isAdminMode && (
-                      <div className="mt-2 text-right">
-                        <button
-                          onClick={() => {
-                            setSelectedScheduleDate(selectedDateDetails.date);
-                            setSelectedScheduleItem(schedule);
-                            setShowAttendanceDetailModal(false);
-                            setShowScheduleModal(true);
-                          }}
-                          className="text-blue-500 hover:underline text-sm"
-                        >
-                          編集
-                        </button>
-                      </div>
-                    )}
+                    <div className="mt-2 text-right">
+                      <button
+                        onClick={() => {
+                          setSelectedScheduleDate(selectedDateDetails.date);
+                          setSelectedScheduleItem(schedule);
+                          setShowAttendanceDetailModal(false);
+                          setShowScheduleModal(true);
+                        }}
+                        className="text-blue-500 hover:underline text-sm"
+                      >
+                        編集
+                      </button>
+                      <button
+                        onClick={() => deleteSchedule(schedule.id)}
+                        className="text-red-500 hover:underline text-sm ml-3"
+                      >
+                        削除
+                      </button>
+                    </div>
                   </div>
                 );
               })
@@ -966,7 +1293,7 @@ const AttendanceApp: React.FC = () => {
   const ScheduleModal = () => {
     const [title, setTitle] = useState("");
     const [details, setDetails] = useState("");
-    const [color, setColor] = useState("#4A90E2"); // デフォルト色
+    const [color, setColor] = useState(PRESET_COLORS[0].value); // デフォルト色
     const [empId, setEmpId] = useState(selectedEmployee || "");
     
     // 編集モードの場合は既存の値をセット
@@ -974,12 +1301,12 @@ const AttendanceApp: React.FC = () => {
       if (selectedScheduleItem) {
         setTitle(selectedScheduleItem.title);
         setDetails(selectedScheduleItem.details || "");
-        setColor(selectedScheduleItem.color || "#4A90E2");
+        setColor(selectedScheduleItem.color || PRESET_COLORS[0].value);
         setEmpId(selectedScheduleItem.employeeId);
       } else {
         setTitle("");
         setDetails("");
-        setColor("#4A90E2");
+        setColor(PRESET_COLORS[0].value);
         setEmpId(selectedEmployee || "");
       }
     }, [selectedScheduleItem, selectedEmployee]);
@@ -1017,12 +1344,7 @@ const AttendanceApp: React.FC = () => {
     
     const handleDelete = () => {
       if (selectedScheduleItem) {
-        showConfirm("この予定を削除しますか？", () => {
-          const newScheduleData = scheduleData.filter(item => item.id !== selectedScheduleItem.id);
-          setScheduleData(newScheduleData);
-          closeScheduleModal();
-          showToast("予定を削除しました", "info");
-        });
+        deleteSchedule(selectedScheduleItem.id);
       }
     };
     
@@ -1091,6 +1413,18 @@ const AttendanceApp: React.FC = () => {
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">色</label>
+            <div className="grid grid-cols-5 gap-2 mb-2">
+              {PRESET_COLORS.map((colorOption) => (
+                <button
+                  key={colorOption.value}
+                  type="button"
+                  className={`w-full h-8 rounded-md ${color === colorOption.value ? 'ring-2 ring-offset-2 ring-blue-500' : ''}`}
+                  style={{ backgroundColor: colorOption.value }}
+                  onClick={() => setColor(colorOption.value)}
+                  title={colorOption.name}
+                />
+              ))}
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -1098,7 +1432,7 @@ const AttendanceApp: React.FC = () => {
                 onChange={(e) => setColor(e.target.value)}
                 className="p-1 border rounded"
               />
-              <span className="text-sm">{color}</span>
+              <span className="text-sm">カスタム色</span>
             </div>
           </div>
           
@@ -1129,101 +1463,57 @@ const AttendanceApp: React.FC = () => {
       </Modal>
     );
   };
-
-  // 一括編集用のモーダル
-  const BulkEditModal = () => {
-    const [selectedWorkType, setSelectedWorkType] = useState("");
-
-    const handleSubmit = () => {
-      if (!selectedWorkType || selectedCells.length === 0) return;
-
-      const newAttendanceData = [...attendanceData];
-
-      selectedCells.forEach(cell => {
-        const dateStr = format(cell.date, "yyyy-MM-dd");
-        
-        // 既存のレコードを除外
-        const recordIndex = newAttendanceData.findIndex(
-          record => record.employeeId === cell.employeeId.toString() && record.date === dateStr
-        );
-        
-        if (recordIndex !== -1) {
-          newAttendanceData.splice(recordIndex, 1);
-        }
-
-        // 新しいレコードを追加
-        const newRecord: AttendanceRecord = {
-          employeeId: cell.employeeId.toString(),
-          date: dateStr,
-          workType: selectedWorkType,
-          employeeName: employees.find(emp => emp.id === cell.employeeId)?.name,
-        };
-        
-        newAttendanceData.push(newRecord);
-      });
-
-      setAttendanceData(newAttendanceData);
-      setIsBulkEditMode(false);
-      setSelectedCells([]);
-      setSelectedWorkType("");
-      
-      showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
-    };
-
+  // ストレージ使用状況モーダル（新規追加）
+  const StorageUsageModal = () => {
+    if (!storageUsageData) return null;
+    
     return (
       <Modal
-        isOpen={isBulkEditMode && selectedCells.length > 0}
-        onClose={() => {
-          setIsBulkEditMode(false);
-          setSelectedCells([]);
-        }}
-        title="勤務区分の一括編集"
+        isOpen={showStorageUsageModal}
+        onClose={() => setShowStorageUsageModal(false)}
+        title="ストレージ使用状況"
       >
-        <div className="p-4">
-          <h3 className="text-lg font-bold mb-4">勤務区分の一括登録</h3>
-          <p className="mb-4">
-            選択された {selectedCells.length} 件のセルに適用する勤務区分を選択してください。
-          </p>
-          
-          <div className="max-h-40 overflow-y-auto mb-4 border p-2 rounded">
-            {selectedCells.map((cell, index) => {
-              const emp = employees.find(e => e.id === cell.employeeId);
-              return (
-                <div key={index} className="text-sm">
-                  {emp?.name} / {format(cell.date, "M月d日")}
-                </div>
-              );
-            })}
+        <div className="p-4 space-y-4">
+          <div className="bg-blue-50 p-3 rounded-lg">
+            <div className="text-lg font-bold">概要</div>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <div>総使用量:</div>
+              <div>{storageUsageData.totalSize}</div>
+              <div>使用率:</div>
+              <div>{storageUsageData.usagePercentage}</div>
+              <div>残り容量:</div>
+              <div>{(storageUsageData.available / 1024 / 1024).toFixed(2)} MB</div>
+            </div>
           </div>
           
-          <select
-            value={selectedWorkType}
-            onChange={(e) => setSelectedWorkType(e.target.value)}
-            className="w-full p-2 border rounded mb-4"
-          >
-            <option value="">選択してください</option>
-            {workTypes.map((type) => (
-              <option key={type.id} value={type.id}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-          <div className="flex justify-end gap-2">
+          <div>
+            <div className="text-lg font-bold mb-2">詳細</div>
+            <div className="max-h-60 overflow-y-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border p-2 text-left">キー</th>
+                    <th className="border p-2 text-right">サイズ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {storageUsageData.details.map((item: any, index: number) => (
+                    <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : ''}>
+                      <td className="border p-2">{item.key}</td>
+                      <td className="border p-2 text-right">{item.size}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          <div className="flex justify-end">
             <button
-              onClick={() => {
-                setIsBulkEditMode(false);
-                setSelectedCells([]);
-              }}
-              className="px-4 py-2 bg-gray-200 rounded"
-            >
-              キャンセル
-            </button>
-            <button
-              onClick={handleSubmit}
+              onClick={() => setShowStorageUsageModal(false)}
               className="px-4 py-2 bg-blue-500 text-white rounded"
-              disabled={!selectedWorkType}
             >
-              一括適用
+              閉じる
             </button>
           </div>
         </div>
@@ -1231,11 +1521,11 @@ const AttendanceApp: React.FC = () => {
     );
   };
 
-  // 管理者設定トグル
+  // 管理者設定トグル（更新）
   const AdminToggle = () => {
     return (
       <div className="fixed bottom-4 right-4 z-50">
-        <div className="bg-white p-2 rounded-full shadow-lg">
+        <div className="bg-white p-2 rounded-lg shadow-lg flex flex-col gap-2">
           <button
             onClick={() => setIsAdminMode(!isAdminMode)}
             className={`p-3 rounded-full ${isAdminMode ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
@@ -1248,11 +1538,24 @@ const AttendanceApp: React.FC = () => {
               <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
             </svg>
           </button>
+          {isAdminMode && (
+            <button
+              onClick={showStorageUsage}
+              className="p-3 rounded-full bg-gray-200 hover:bg-gray-300"
+              title="ストレージ使用状況を確認"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 12H2"></path>
+                <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+                <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                <line x1="10" y1="16" x2="10.01" y2="16"></line>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     );
   };
-
   //---------------------------------------------------------------
   // メインレンダリング
   //---------------------------------------------------------------
@@ -1313,34 +1616,34 @@ const AttendanceApp: React.FC = () => {
               >
                 次月
               </button>
-              <div className="relative group">
-                <button
-                  className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                >
-                  エクスポート
-                </button>
-                <div className="absolute right-0 mt-1 w-48 bg-white rounded shadow-lg hidden group-hover:block z-50">
-                  <button
-                    onClick={exportToExcel}
-                    className="block w-full text-left px-4 py-2 hover:bg-gray-100"
-                  >
-                    勤務データをエクスポート
-                  </button>
-                  <button
-                    onClick={exportScheduleToExcel}
-                    className="block w-full text-left px-4 py-2 hover:bg-gray-100"
-                  >
-                    予定データをエクスポート
-                  </button>
-                </div>
-              </div>
+              <button
+                onClick={exportToExcel}
+                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+              >
+                勤務データをエクスポート
+              </button>
               {isAdminMode && (
-                <button
-                  onClick={resetAllData}
-                  className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                >
-                  データリセット
-                </button>
+                <div className="relative group">
+                  <button
+                    className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                  >
+                    データリセット
+                  </button>
+                  <div className="absolute right-0 mt-1 w-48 bg-white rounded shadow-lg hidden group-hover:block z-50">
+                    <button
+                      onClick={resetMonthData}
+                      className="block w-full text-left px-4 py-2 hover:bg-gray-100"
+                    >
+                      {format(currentDate, "yyyy年M月")}のデータのみリセット
+                    </button>
+                    <button
+                      onClick={resetAllData}
+                      className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600"
+                    >
+                      全データをリセット
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -1352,7 +1655,12 @@ const AttendanceApp: React.FC = () => {
 
           {/* トースト通知 */}
           {toast.show && (
-            <div className={`toast ${toast.type === 'success' ? 'bg-green-500' : toast.type === 'error' ? 'bg-red-500' : 'bg-blue-500'}`}>
+            <div className={`toast ${
+              toast.type === 'success' ? 'bg-green-500' : 
+              toast.type === 'error' ? 'bg-red-500' : 
+              toast.type === 'warning' ? 'bg-yellow-500' : 
+              'bg-blue-500'
+            }`}>
               {toast.message}
             </div>
           )}
@@ -1361,7 +1669,7 @@ const AttendanceApp: React.FC = () => {
           <WorkTypeSelectionModal />
           <AttendanceDetailModal />
           <ScheduleModal />
-          {isBulkEditMode && selectedCells.length > 0 && <BulkEditModal />}
+          <StorageUsageModal />
           <ConfirmModal
             isOpen={showConfirmModal}
             onClose={() => setShowConfirmModal(false)}
