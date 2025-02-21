@@ -672,7 +672,7 @@ const AttendanceApp: React.FC = () => {
           
           {isBulkEditMode && (
             <div className="text-sm text-gray-600 mt-2 mb-2">
-              <p>※ Ctrlキーを押しながらクリックで複数選択できます。セルをダブルクリックすると週単位で選択できます。</p>
+              <p>※ Ctrlキーを押しながらクリックで複数選択できます。</p>
               <p>※ 従業員名をクリックすると、その従業員の全日程を選択できます。</p>
             </div>
           )}
