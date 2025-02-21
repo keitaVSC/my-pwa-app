@@ -246,36 +246,36 @@ const AttendanceApp: React.FC = () => {
           <table className="table-fixed border-collapse w-full">
             <thead className="sticky top-0 bg-white z-10">
               <tr>
-              <th className="border p-3 sticky left-0 bg-white z-20 w-36">
+              <th className="border p-4 sticky left-0 bg-white text-lg">
                 従業員名
               </th>
                 {dates.map(date => (
-                  <th 
-                    key={date.getTime()} 
-                    className={`
-                      border p-2 min-w-[80px]
-                      ${getCellBackgroundColor(date).bg}
-                    `}
-                  >
-                    <div className={getCellBackgroundColor(date).text}>
-                      {format(date, 'd')}
-                      <span className="ml-1 text-xs">
-                        ({['日', '月', '火', '水', '木', '金', '土'][date.getDay()]})
-                        {isJapaneseHoliday(date) && (
-                          <span className="block text-xs">
-                            {getHolidayName(date)}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="text-xs">
-                      {Object.entries(calculateDailySummary(date)).map(([type, count]) => (
-                        <div key={type}>
-                          {workTypes.find(w => w.id === type)?.label}: {count}
-                        </div>
-                      ))}
-                    </div>
-                  </th>
+                 <th 
+                  key={date.getTime()} 
+                  className={`
+                    border p-4 min-w-[120px]
+                    ${getCellBackgroundColor(date).bg}
+                  `}
+                >
+                  <div className={`${getCellBackgroundColor(date).text} text-xl`}>
+                    {format(date, 'd')}
+                    <span className="block text-base">
+                      ({['日', '月', '火', '水', '木', '金', '土'][date.getDay()]})
+                      {isJapaneseHoliday(date) && (
+                        <span className="block">
+                          {getHolidayName(date)}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="text-sm mt-2">
+                    {Object.entries(calculateDailySummary(date)).map(([type, count]) => (
+                      <div key={type} className="py-1">
+                        {workTypes.find(w => w.id === type)?.label}: {count}
+                      </div>
+                    ))}
+                  </div>
+                </th>
                 ))}
               </tr>
             </thead>
@@ -296,7 +296,8 @@ const AttendanceApp: React.FC = () => {
                           <td
                             key={`${employee.id}-${date.getTime()}`}
                             className={`
-                              border p-2 cursor-pointer
+                              border p-4 cursor-pointer text-center text-xl
+                              min-h-[50px] min-w-[120px]
                               ${getCellBackgroundColor(date).bg}
                               ${getCellBackgroundColor(date).hover}
                             `}
