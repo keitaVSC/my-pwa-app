@@ -16,28 +16,29 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         cleanupOutdatedCaches: true
       },
-      includeAssets: ['favicon.ico'],
+      includeAssets: ['favicon.ico', 'icons/icon-192x192.png', 'icons/icon-512x512.png'],
       manifest: {
         name: '勤務管理アプリ',
         short_name: '勤務管理',
+        description: '勤務管理アプリケーション',
+        start_url: '/',
+        display: 'standalone',
+        background_color: '#ffffff',
+        theme_color: '#4A90E2',
         icons: [
           {
-            src: './icons/icon-192x192.png',  // 相対パスに変更
+            src: '/icons/icon-192x192.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: './icons/icon-512x512.png',  // 相対パスに変更
+            src: '/icons/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
           }
-        ],
-        start_url: '/',
-        display: 'standalone',
-        background_color: '#ffffff',
-        theme_color: '#4A90E2'
+        ]
       }
     })
   ]
