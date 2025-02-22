@@ -781,8 +781,7 @@ const TableView = React.memo(() => {
         
         {isBulkEditMode && isAdminMode && (
           <div className="text-sm text-gray-600 mt-2 mb-2">
-            <p>※ Ctrlキーを押しながらクリックで複数選択できます。</p>
-            <p>※ スマホの場合は長押し後、他のセルをタップで複数選択できます。</p>
+            <p>※ Ctrlキーを押しながらか複数選択モードで複数選択できます。</p>
             <p>※ 従業員名をクリックすると、その従業員の全日程を選択できます。</p>
           </div>
         )}

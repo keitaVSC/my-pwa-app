@@ -28,13 +28,6 @@
   overflow: hidden;
 }
 
-@media (max-width: 640px) {
-  .calendar-cell {
-    min-height: 80px;
-    padding: 4px;
-  }
-}
-
 .calendar-cell-current {
   background-color: #ffffff;
 }
@@ -81,60 +74,29 @@
 }
 
 /* 勤務表のスタイル */
+.attendance-table-wrapper {
+  position: relative;
+  height: calc(100vh - 200px);
+  overflow: hidden;
+  background: white;
+}
+
 .attendance-table-container {
-  touch-action: pan-x pan-y;
+  height: 100%;
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
+  width: 100%;
+  touch-action: manipulation;
 }
 
 .attendance-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  transform-origin: 0 0;
 }
 
-/* スマホでのピンチズーム対応 */
-@media (max-width: 768px) {
-  body {
-    touch-action: manipulation;
-  }
-  
-  .calendar-grid {
-    gap: 2px;
-  }
-  
-  .calendar-header {
-    padding: 4px;
-    font-size: 14px;
-  }
-  
-  /* スマホでの祝日名の調整 */
-  .calendar-cell .text-xs.text-red-500.truncate {
-    font-size: 10px;
-    line-height: 1.2;
-    max-width: 100%;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-}
-
-/* 個人カレンダーのスタイル調整 */
-@media (max-width: 640px) {
-  .calendar-cell {
-    min-height: 100px; /* スマホでの高さを固定 */
-  }
-}
-
-/* テーブル内のセル固定サイズ */
-th, td {
-  min-width: 40px;
-}
-
-/* テーブルビューの固定ヘッダーとスクロール対応 */
-.attendance-table-container {
-  overflow-x: auto;
-  max-height: calc(100vh - 200px);
-}
-
+/* テーブルの固定ヘッダーとスクロール */
 .attendance-table th {
   position: sticky;
   top: 0;
@@ -146,6 +108,7 @@ th, td {
   position: sticky;
   left: 0;
   z-index: 20;
+  background-color: white;
 }
 
 .attendance-table td:first-child {
@@ -153,6 +116,80 @@ th, td {
   left: 0;
   background-color: white;
   z-index: 5;
+}
+
+/* セルのサイズ設定 */
+.attendance-table th,
+.attendance-table td {
+  min-width: 60px;
+  padding: 8px 4px;
+}
+
+/* スマホ対応 */
+@media (max-width: 768px) {
+  body {
+    touch-action: manipulation;
+  }
+
+  .calendar-grid {
+    gap: 2px;
+  }
+
+  .calendar-header {
+    padding: 4px;
+    font-size: 14px;
+  }
+
+  .calendar-cell {
+    min-height: 80px;
+    padding: 4px;
+  }
+
+  .attendance-table-wrapper {
+    height: calc(100vh - 180px);
+  }
+
+  .attendance-table-container {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y pinch-zoom;
+    scroll-behavior: smooth;
+  }
+
+  /* スクロールバーのスタイル */
+  .attendance-table-container::-webkit-scrollbar {
+    -webkit-appearance: none;
+    width: 7px;
+    height: 7px;
+  }
+
+  .attendance-table-container::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, .3);
+    -webkit-box-shadow: 0 0 1px rgba(255, 255, 255, .5);
+  }
+
+  /* セルのタッチ操作 */
+  .attendance-table td {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 祝日名の調整 */
+  .calendar-cell .text-xs.text-red-500.truncate {
+    font-size: 10px;
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  /* 選択状態のスタイル */
+  .attendance-table td.selected {
+    position: relative;
+    z-index: 1;
+    box-shadow: 0 0 0 2px #3b82f6;
+  }
 }
 
 /* アニメーション効果 */
@@ -170,155 +207,20 @@ th, td {
   .no-print {
     display: none !important;
   }
-  
+
   body {
     background-color: white;
   }
-  
+
   .container {
     max-width: 100%;
     padding: 0;
   }
-  
+
   .calendar-cell {
     border: 1px solid #e5e7eb;
   }
-  
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  
-  th, td {
-    border: 1px solid #e5e7eb;
-  }
-}
-/* index.css に追加 */
 
-/* 表のピンチズーム対応 */
-.attendance-table-container {
-  touch-action: pan-x pan-y pinch-zoom;
-  -webkit-overflow-scrolling: touch;
-  max-width: 100%;
-  overflow: auto;
-}
-
-.attendance-table {
-  transform-origin: 0 0;
-  min-width: 100%;
-}
-
-/* スクロール位置保持のための追加スタイル */
-.attendance-table-wrapper {
-  position: relative;
-  height: calc(100vh - 200px); /* ヘッダーやその他の要素の高さを考慮して調整 */
-  overflow: auto;
-}
-
-/* スマホでのスクロール操作を滑らかにする */
-@media (max-width: 768px) {
-  .attendance-table-container {
-    -webkit-overflow-scrolling: touch;
-    scroll-behavior: smooth;
-  }
-}
-/* index.css に追加 */
-
-/* テーブルのコンテナ設定 */
-.attendance-table-wrapper {
-  position: relative;
-  height: calc(100vh - 200px);
-  overflow: hidden;
-  background: white;
-}
-
-.attendance-table-container {
-  height: 100%;
-  overflow: auto;
-  touch-action: pan-x pan-y pinch-zoom;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* テーブルの基本設定 */
-.attendance-table {
-  border-collapse: separate;
-  border-spacing: 0;
-  width: 100%;
-  transform-origin: 0 0;
-}
-
-/* スクロール時の固定ヘッダーと列の設定 */
-.attendance-table th {
-  z-index: 2;
-  position: sticky;
-  top: 0;
-  background-color: white;
-}
-
-.attendance-table th:first-child {
-  z-index: 3;
-  left: 0;
-}
-
-.attendance-table td:first-child {
-  position: sticky;
-  left: 0;
-  background-color: white;
-  z-index: 1;
-}
-
-/* スマホ向けの最適化 */
-@media (max-width: 768px) {
-  .attendance-table-container {
-    scroll-behavior: smooth;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* スマホでのスクロールを滑らかにする */
-  .attendance-table-container::-webkit-scrollbar {
-    -webkit-appearance: none;
-    width: 7px;
-    height: 7px;
-  }
-
-  .attendance-table-container::-webkit-scrollbar-thumb {
-    border-radius: 4px;
-    background-color: rgba(0, 0, 0, .3);
-    -webkit-box-shadow: 0 0 1px rgba(255, 255, 255, .5);
-  }
-
-  /* セルのサイズ調整 */
-  .attendance-table th,
-  .attendance-table td {
-    min-width: 60px;
-    padding: 8px 4px;
-  }
-
-  /* 選択状態の視覚的フィードバックを強調 */
-  .attendance-table td.selected {
-    position: relative;
-    z-index: 1;
-    box-shadow: 0 0 0 2px #3b82f6;
-  }
-
-  /* 長押し時の視覚的フィードバック */
-  .attendance-table td {
-    touch-action: none;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .attendance-table td:active {
-    background-color: rgba(59, 130, 246, 0.1);
-  }
-}
-
-/* ピンチズーム時のアニメーション */
-.attendance-table-container {
-  transition: transform 0.1s ease-out;
-}
-
-/* プリント時のスタイル */
-@media print {
   .attendance-table-wrapper {
     height: auto;
     overflow: visible;
@@ -332,5 +234,6 @@ th, td {
   .attendance-table td {
     position: static !important;
     break-inside: avoid;
+    border: 1px solid #e5e7eb;
   }
 }
