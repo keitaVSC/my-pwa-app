@@ -1023,104 +1023,178 @@ const AttendanceApp: React.FC = () => {
     );
   });
   
-  // 単一従業員カレンダービュー
-  const SingleEmployeeCalendarView = React.memo(() => {
-    if (!selectedEmployee) return null;
-    
-    const employeeId = parseInt(selectedEmployee);
-    const employeeName = employees.find(emp => emp.id === employeeId)?.name || "従業員";
-    
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-bold mb-4">{employeeName}さんの勤務カレンダー</h2>
-        <div className="calendar-grid">
-          {["日", "月", "火", "水", "木", "金", "土"].map((day) => (
-            <div key={day} className="calendar-header">
-              {day}
-            </div>
+// 単一従業員カレンダービュー
+const SingleEmployeeCalendarView = React.memo(() => {
+  if (!selectedEmployee) return null;
+  
+  const employeeId = parseInt(selectedEmployee);
+  const employeeName = employees.find(emp => emp.id === employeeId)?.name || "従業員";
+  
+  return (
+    <div className="p-4">
+      <div className="mb-4 flex gap-2 items-center">
+        <select
+          value={selectedEmployee}
+          onChange={(e) => setSelectedEmployee(e.target.value)}
+          className="w-64 p-2 border rounded"
+        >
+          <option value="">全従業員を表示</option>
+          {employees.map((emp) => (
+            <option key={emp.id} value={emp.id.toString()}>
+              {emp.name}
+            </option>
           ))}
-          {generateCalendarDates(
-            currentDate.getFullYear(),
-            currentDate.getMonth()
-          ).map(({ date, isCurrentMonth }) => {
-            const workType = getEmployeeWorkTypeForDate(employeeId, date);
-            const workTypeLabel = workType ? workTypes.find(w => w.id === workType)?.label : null;
-            const schedules = getEmployeeScheduleForDate(employeeId, date);
+        </select>
+        
+        {isAdminMode && (
+          <div className="flex items-center gap-2 ml-4">
+            <button
+              onClick={() => {
+                setIsBulkEditMode(!isBulkEditMode);
+                if (!isBulkEditMode) {
+                  setSelectedCells([]);
+                }
+              }}
+              className={`px-3 py-1 rounded ${
+                isBulkEditMode ? 'bg-blue-500 text-white' : 'bg-gray-200'
+              }`}
+            >
+              {isBulkEditMode ? '一括編集中' : '一括編集'}
+            </button>
             
-            return (
-              <div
-                key={date.toISOString()}
-                className={`calendar-cell ${
-                  isCurrentMonth
-                    ? "calendar-cell-current"
-                    : "calendar-cell-other"
-                } ${getCellBackgroundColor(date).text} cursor-pointer`}
-                onClick={() => {
-                  if (isCurrentMonth) {
+            {isBulkEditMode && (
+              <>
+                <button
+                  onClick={() => setSelectedCells([])}
+                  className="px-3 py-1 rounded bg-gray-200"
+                  disabled={selectedCells.length === 0}
+                >
+                  選択解除 {selectedCells.length > 0 && `(${selectedCells.length})`}
+                </button>
+                
+                <button
+                  onClick={() => setIsMobileSelectMode(!isMobileSelectMode)}
+                  className={`px-3 py-1 rounded ${
+                    isMobileSelectMode ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                  } text-sm md:text-base`}
+                >
+                  {isMobileSelectMode ? '複数選択モード：オン' : '複数選択モードに切り替え'}
+                </button>
+                
+                {selectedCells.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setShowWorkTypeModal(true);
+                    }}
+                    className="px-3 py-1 rounded bg-blue-500 text-white"
+                  >
+                    勤務区分を適用
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {isBulkEditMode && isAdminMode && (
+        <div className="text-sm text-gray-600 mt-2 mb-2">
+          <p>※ Ctrlキーを押しながらクリックで複数選択できます。</p>
+          <p>※ 複数選択モードをオンにすると連続選択が可能になります。</p>
+        </div>
+      )}
+      
+      <div className="calendar-grid">
+        {["日", "月", "火", "水", "木", "金", "土"].map((day) => (
+          <div key={day} className="calendar-header">
+            {day}
+          </div>
+        ))}
+        {generateCalendarDates(
+          currentDate.getFullYear(),
+          currentDate.getMonth()
+        ).map(({ date, isCurrentMonth }) => {
+          const workType = getEmployeeWorkTypeForDate(employeeId, date);
+          const workTypeLabel = workType ? workTypes.find(w => w.id === workType)?.label : null;
+          const schedules = getEmployeeScheduleForDate(employeeId, date);
+          const isSelected = isCellSelected(employeeId, date);
+          
+          return (
+            <div
+              key={date.toISOString()}
+              className={`calendar-cell ${
+                isCurrentMonth
+                  ? "calendar-cell-current"
+                  : "calendar-cell-other"
+              } ${getCellBackgroundColor(date).text} cursor-pointer ${
+                isBulkEditMode && isAdminMode && isSelected ? 'bg-blue-100 border-2 border-blue-500' : ''
+              }`}
+              onClick={(e) => {
+                if (isCurrentMonth) {
+                  if (isBulkEditMode && isAdminMode) {
+                    toggleCellSelection(employeeId, date, e.ctrlKey || isCtrlPressed);
+                  } else {
                     setSelectedCell({ employeeId, date });
                     setShowWorkTypeModal(true);
                   }
-                }}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="font-bold">
-                    {date.getDate()}
-                  </div>
-                  <div className="text-xs">
-                    {['日', '月', '火', '水', '木', '金', '土'][date.getDay()]}
-                  </div>
+                }
+              }}
+            >
+              <div className="flex justify-between items-start">
+                <div className="font-bold">
+                  {date.getDate()}
                 </div>
-                
-                {/* 祝日名（スマホでも表示） */}
-                {isJapaneseHoliday(date) && (
-                  <div className="text-xs text-red-500 truncate">
-                    {getHolidayName(date)}
-                  </div>
-                )}
-                
-                {/* 勤務区分の表示 */}
-                {isCurrentMonth && (
-                  <div className="mt-2 mb-2 flex items-center justify-center min-h-[40px]">
-                    {workType ? (
-                      <div className="text-xl font-bold p-2 bg-blue-50 rounded text-blue-800 w-full text-center">
-                        {workTypeLabel}
-                      </div>
-                    ) : (
-                      <div className="text-gray-400 text-sm flex items-center justify-center h-full w-full">
-                        タップして登録
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* 予定の表示 */}
-                {schedules.length > 0 && (
-                  <div className="text-xs space-y-1 mt-2">
-                    {schedules.map((schedule) => (
-                      <div
-                        key={schedule.id}
-                        className="p-1 rounded text-white truncate cursor-pointer"
-                        style={{ backgroundColor: schedule.color || '#4A90E2' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedScheduleDate(date);
-                          setSelectedScheduleItem(schedule);
-                          setShowScheduleModal(true);
-                        }}
-                        title={schedule.title}
-                      >
-                        {schedule.title}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="text-xs">
+                  {['日', '月', '火', '水', '木', '金', '土'][date.getDay()]}
+                </div>
               </div>
-            );
-          })}
-        </div>
+              
+              {/* 祝日名（スマホでも表示） */}
+              {isJapaneseHoliday(date) && (
+                <div className="text-xs text-red-500 truncate">
+                  {getHolidayName(date)}
+                </div>
+              )}
+              
+              {/* 勤務区分の表示 */}
+              {isCurrentMonth && (
+                <div className="mt-2 mb-2 flex items-center justify-center min-h-[40px]">
+                  {workType && (
+                    <div className="text-xl font-bold p-2 bg-blue-50 rounded text-blue-800 w-full text-center">
+                      {workTypeLabel}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* 予定の表示 */}
+              {schedules.length > 0 && (
+                <div className="text-xs space-y-1 mt-2">
+                  {schedules.map((schedule) => (
+                    <div
+                      key={schedule.id}
+                      className="p-1 rounded text-white truncate cursor-pointer"
+                      style={{ backgroundColor: schedule.color || '#4A90E2' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedScheduleDate(date);
+                        setSelectedScheduleItem(schedule);
+                        setShowScheduleModal(true);
+                      }}
+                      title={schedule.title}
+                    >
+                      {schedule.title}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-    );
-  });
+    </div>
+  );
+});
   //---------------------------------------------------------------
   // モーダルコンポーネント
   //---------------------------------------------------------------
