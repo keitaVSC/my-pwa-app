@@ -141,7 +141,7 @@ const employees: Employee[] = [
   { id: 23, name: "益田　幸枝" },
   { id: 24, name: "井上　真理子" },
   { id: 25, name: "斎藤さん" },
-  { id: 26, name: "越野 裕太" },
+  { id: 26, name: "越野　裕太" },
   { id: 27, name: "北大非常勤" }
 ];
 
