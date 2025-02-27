@@ -25,15 +25,15 @@ export default defineConfig({
         display: 'standalone',
         background_color: '#ffffff',
         theme_color: '#4A90E2',
-        icons: [
+         icons: [
           {
-            src: '/icons/icon-192x192.png',
+            src: 'icons/icon-192x192.png', // 先頭の / を削除
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: '/icons/icon-512x512.png',
+            src: 'icons/icon-512x512.png', // 先頭の / を削除
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
