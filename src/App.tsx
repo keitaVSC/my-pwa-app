@@ -118,10 +118,10 @@ const PRESET_COLORS: ColorOption[] = [
 const employees: Employee[] = [
   { id: 1, name: "小田　孝" },
   { id: 2, name: "益田　洋史" },
-  { id: 3, name: "益田　幸枝" },
-  { id: 4, name: "佐藤　徳保" },
-  { id: 5, name: "吉野　広一郎" },
-  { id: 6, name: "田口　祐介" },
+  { id: 3, name: "佐藤　徳保" },
+  { id: 4, name: "吉野　広一郎" },
+  { id: 5, name: "田口　祐介" },
+  { id: 6, name: "江沢　侑也" },
   { id: 7, name: "吉田　結" },
   { id: 8, name: "山田　慧太" },
   { id: 9, name: "上村　沙奈恵" },
@@ -136,10 +136,13 @@ const employees: Employee[] = [
   { id: 18, name: "若木　雄太" },
   { id: 19, name: "中谷　優衣" },
   { id: 20, name: "濱田　泰陽" },
-  { id: 21, name: "新人C" },
-  { id: 22, name: "新人D" },
-  { id: 23, name: "井上　真理子" },
-  { id: 24, name: "斎藤さん" },
+  { id: 21, name: "佐々木　幹也" },
+  { id: 22, name: "前田　愛" },
+  { id: 23, name: "益田　幸枝" },
+  { id: 24, name: "井上　真理子" },
+  { id: 25, name: "斎藤さん" },
+  { id: 26, name: "越野先生" },
+  { id: 27, name: "北大非常勤" }
 ];
 
 // 勤務区分リスト
@@ -164,6 +167,7 @@ const workTypes: WorkType[] = [
   { id: "A/p1", label: "A/p1" },
   { id: "A/p2", label: "A/p2" },
   { id: "A/p3", label: "A/p3" },
+  { id: "日", label: "日" },
   { id: "遅1", label: "遅1" },
   { id: "遅2", label: "遅2" },
   { id: "早1", label: "早1" },
