@@ -1,7 +1,7 @@
 {
-  "name": "勤怠管理アプリ",
-  "short_name": "勤怠管理",
-  "description": "勤怠管理システム",
+  "name": "勤務管理アプリ",
+  "short_name": "勤務管理",
+  "description": "勤務管理システム",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
