@@ -12,9 +12,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto', 
-      // 削除: strategies: 'injectManifest',  
-      // 削除: injectManifest: { injectionPoint: undefined },
+      injectRegister: 'auto',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         cleanupOutdatedCaches: true,
@@ -22,6 +20,7 @@ export default defineConfig({
         clientsClaim: true
       },
       includeAssets: ['favicon.ico', 'icons/icon-192x192.png', 'icons/icon-512x512.png'],
+      manifestFilename: 'manifest.json',
       manifest: {
         name: '勤務管理アプリ',
         short_name: '勤務管理',
@@ -32,18 +31,22 @@ export default defineConfig({
         theme_color: '#4A90E2',
         icons: [
           {
-            src: './icons/icon-192x192.png', // ./で相対パスに変更
+            src: '/icons/icon-192x192.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: './icons/icon-512x512.png', // ./で相対パスに変更
+            src: '/icons/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
           }
-        ]
+        ],
+        id: '/'
+      },
+      devOptions: {
+        enabled: true
       }
     })
   ]

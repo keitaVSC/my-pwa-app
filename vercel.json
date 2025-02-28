@@ -9,7 +9,7 @@
       }
     },
     {
-      "src": "^/(manifest\\.json|sw\\.js)",
+      "src": "^/(manifest\\.webmanifest|manifest\\.json|sw\\.js)",
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate"
       }
