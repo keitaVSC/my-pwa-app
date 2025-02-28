@@ -12,16 +12,14 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto', // 追加
-      strategies: 'injectManifest', // 追加
-      injectManifest: {
-        injectionPoint: undefined,
-      },
+      injectRegister: 'auto', 
+      // 削除: strategies: 'injectManifest',  
+      // 削除: injectManifest: { injectionPoint: undefined },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         cleanupOutdatedCaches: true,
-        skipWaiting: true, // 追加
-        clientsClaim: true // 追加
+        skipWaiting: true,
+        clientsClaim: true
       },
       includeAssets: ['favicon.ico', 'icons/icon-192x192.png', 'icons/icon-512x512.png'],
       manifest: {
@@ -34,13 +32,13 @@ export default defineConfig({
         theme_color: '#4A90E2',
         icons: [
           {
-            src: '/icons/icon-192x192.png', // 先頭に / を追加
+            src: '/icons/icon-192x192.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: '/icons/icon-512x512.png', // 先頭に / を追加
+            src: '/icons/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
