@@ -53,7 +53,6 @@ const getCellBackgroundColor = (date: Date) => {
     text: "",
   };
 };
-
 //=====================================================================
 // Part 2: 型定義
 //=====================================================================
@@ -452,7 +451,6 @@ const AttendanceApp: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toast]);
-
   //---------------------------------------------------------------
   // ヘルパー関数
   //---------------------------------------------------------------
@@ -556,6 +554,76 @@ const AttendanceApp: React.FC = () => {
     );
     
     return record ? record.workType : null;
+  };
+  
+  // 平日（月〜金）かどうかを判定する関数
+  const isWeekday = (date: Date): boolean => {
+    const day = date.getDay();
+    return day >= 1 && day <= 5; // 月曜日(1)から金曜日(5)まで
+  };
+
+  // 条件1の勤務区分リスト
+  const WARNING_WORK_TYPES_CONDITION1 = [
+    "休", "A", "P", "年", "a", "p", "Ap", "Fビ", "a1/P", "a2/P", "a3/P", "A/p1", "A/p3"
+  ];
+
+  // 条件2の勤務区分リスト
+  const WARNING_WORK_TYPES_CONDITION2 = ["A", "P", "a", "p"];
+
+  // 特定の勤務区分の合計人数をカウントする関数
+  const countSpecificWorkTypes = (date: Date, workTypeList: string[]): number => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    const records = attendanceData.filter(
+      record => record.date === dateStr && workTypeList.includes(record.workType)
+    );
+    return records.length;
+  };
+
+  // 指定した週に祝日があるかどうかを判定する関数
+  const hasHolidayInWeek = (date: Date): boolean => {
+    // 週の開始日（日曜日）
+    const startOfWeek = new Date(date);
+    startOfWeek.setDate(date.getDate() - date.getDay());
+    
+    // 週の終了日（土曜日）
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    
+    // 週内の各日をチェック
+    let currentDate = new Date(startOfWeek);
+    while (currentDate <= endOfWeek) {
+      if (isJapaneseHoliday(currentDate)) {
+        return true;
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    return false;
+  };
+
+  // 条件1: 平日で特定の勤務区分の合計が8人以上
+  const checkCondition1 = (date: Date): boolean => {
+    if (!isWeekday(date)) {
+      return false;
+    }
+    
+    const count = countSpecificWorkTypes(date, WARNING_WORK_TYPES_CONDITION1);
+    return count >= 8;
+  };
+
+  // 条件2: 祝日のある週の平日で特定の勤務区分の合計が4人以上
+  const checkCondition2 = (date: Date): boolean => {
+    if (!isWeekday(date) || !hasHolidayInWeek(date)) {
+      return false;
+    }
+    
+    const count = countSpecificWorkTypes(date, WARNING_WORK_TYPES_CONDITION2);
+    return count >= 4;
+  };
+
+  // 警告表示が必要かどうかを判定する総合関数
+  const shouldShowWarning = (date: Date): boolean => {
+    return checkCondition1(date) || checkCondition2(date);
   };
   
   // トースト通知を表示
@@ -760,7 +828,6 @@ const AttendanceApp: React.FC = () => {
       showToast("予定を削除しました", "info");
     });
   };
-
   //---------------------------------------------------------------
   // サブコンポーネント
   //---------------------------------------------------------------
@@ -1103,7 +1170,6 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   });
-
   // CalendarViewコンポーネント
   const CalendarView = React.memo(() => {
     return (
@@ -1128,7 +1194,9 @@ const AttendanceApp: React.FC = () => {
                   isCurrentMonth
                     ? "calendar-cell-current"
                     : "calendar-cell-other"
-                } ${getCellBackgroundColor(date).text}`}
+                } ${getCellBackgroundColor(date).text} ${
+                  isCurrentMonth && shouldShowWarning(date) ? "bg-warning-red" : ""
+                }`}
               >
                 <div className="flex justify-between items-start">
                   <div className="font-bold">
@@ -1222,7 +1290,6 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   });
-  
   // 単一従業員カレンダービュー
   const SingleEmployeeCalendarView = React.memo(() => {
     if (!selectedEmployee) return null;
@@ -1328,6 +1395,8 @@ const AttendanceApp: React.FC = () => {
                     : "calendar-cell-other"
                 } ${getCellBackgroundColor(date).text} cursor-pointer ${
                   isBulkEditMode && isAdminMode && isSelected ? 'bg-blue-100 border-2 border-blue-500' : ''
+                } ${
+                  isCurrentMonth && shouldShowWarning(date) ? "bg-warning-red" : ""
                 }`}
                 onClick={(e) => {
                   if (isCurrentMonth) {
@@ -1395,7 +1464,6 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   });
-  
   //---------------------------------------------------------------
   // モーダルコンポーネント
   //---------------------------------------------------------------

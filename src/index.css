@@ -269,3 +269,8 @@
   align-items: center;
   gap: 8px;
 }
+
+/* 警告用の背景色 */
+.bg-warning-red {
+  background-color: rgba(255, 0, 0, 0.1); /* 薄い赤色 */
+}
