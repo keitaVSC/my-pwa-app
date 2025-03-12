@@ -1,7 +1,7 @@
 // src/App.tsx
 
 import React, { useState, useEffect, useRef } from "react";
-import { format, parse, isSameMonth } from "date-fns";
+import { format, parse, isSameMonth, addMonths, subMonths, startOfMonth } from "date-fns";
 import * as XLSX from "xlsx";
 import JapaneseHolidays from "japanese-holidays";
 import Modal from "./components/Modal";
@@ -109,6 +109,18 @@ const PRESET_COLORS: ColorOption[] = [
   { name: "オレンジ", value: "#E2A14A" },
   { name: "ピンク", value: "#E24A9E" }
 ];
+
+// カウント除外する従業員のID
+const EXCLUDED_EMPLOYEE_IDS = [23, 24, 25, 26, 27];
+
+// 勤務区分の表示順
+const WORK_TYPE_DISPLAY_ORDER = [
+  "休", "年", "Ap", "a3/P", "a2/P", "a1/P", "A/p3", "A/p2", "A/p1", 
+  "A", "P", "半1", "半5", "a", "p", "a3", "a2", "a1", "p3", "p2", "p1",
+  // 残りの勤務区分（順序指定外）
+  "Fビ", "日", "遅1", "遅2", "早1", "早2", "短", "短土"
+];
+
 //=====================================================================
 // Part 3: 初期データ
 //=====================================================================
@@ -131,17 +143,17 @@ const employees: Employee[] = [
   { id: 14, name: "池島　凌太" },
   { id: 15, name: "木村　汐里" },
   { id: 16, name: "今井　淳貴" },
-  { id: 17, name: "藤田　向陽" },
-  { id: 18, name: "若木　雄太" },
+  { id: 17, name: "若木　雄太" }, // 順序変更
+  { id: 18, name: "藤田　向陽" }, // 順序変更
   { id: 19, name: "中谷　優衣" },
   { id: 20, name: "濱田　泰陽" },
   { id: 21, name: "佐々木　幹也" },
   { id: 22, name: "前田　愛都" },
   { id: 23, name: "益田　幸枝" },
   { id: 24, name: "井上　真理子" },
-  { id: 25, name: "斎藤さん" },
+  { id: 25, name: "斎藤　綾子" }, // 名前変更
   { id: 26, name: "越野　裕太" },
-  { id: 27, name: "北大非常勤" }
+  { id: 27, name: "非常勤（桑原　真尋）" } // 名前変更
 ];
 
 // 勤務区分リスト
@@ -213,6 +225,11 @@ const AttendanceApp: React.FC = () => {
   const [confirmModalMessage, setConfirmModalMessage] = useState("");
   const [confirmModalAction, setConfirmModalAction] = useState<() => void>(() => {});
   const [successMessage, setSuccessMessage] = useState("");
+
+  // 月選択モーダル関連
+  const [showMonthSelectionModal, setShowMonthSelectionModal] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<Date>(currentDate);
+  const [monthSelectionMode, setMonthSelectionMode] = useState<"export" | "reset">("export");
 
   // ストレージ使用状況表示用の状態
   const [showStorageUsageModal, setShowStorageUsageModal] = useState(false);
@@ -286,6 +303,7 @@ const AttendanceApp: React.FC = () => {
         );
         if (savedDateStr) {
           setCurrentDate(new Date(savedDateStr));
+          setSelectedMonth(new Date(savedDateStr));
         }
         
         const selectedEmp = await StorageService.getDataAsync<string>(
@@ -454,6 +472,26 @@ const AttendanceApp: React.FC = () => {
   //---------------------------------------------------------------
   // ヘルパー関数
   //---------------------------------------------------------------
+  // 勤務区分の表示順にソートする関数
+  const sortWorkTypeSummary = (summary: DailySummary) => {
+    return Object.entries(summary).sort((a: [string, number], b: [string, number]) => {
+      const indexA = WORK_TYPE_DISPLAY_ORDER.indexOf(a[0]);
+      const indexB = WORK_TYPE_DISPLAY_ORDER.indexOf(b[0]);
+      
+      // 表示順リストにある場合はその順序を使用
+      if (indexA !== -1 && indexB !== -1) {
+        return indexA - indexB;
+      }
+      
+      // どちらか一方だけリストにある場合は、リストにある方を優先
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      
+      // どちらもリストにない場合はアルファベット順
+      return a[0].localeCompare(b[0]);
+    });
+  };
+
   // ビューポートメタタグを更新
   const updateViewportMetaTag = () => {
     const viewportMeta = document.querySelector('meta[name="viewport"]');
@@ -522,7 +560,13 @@ const AttendanceApp: React.FC = () => {
   // 日次集計を計算
   const calculateDailySummary = (date: Date): DailySummary => {
     const dateStr = format(date, "yyyy-MM-dd");
-    const records = attendanceData.filter((record) => record.date === dateStr);
+    const records = attendanceData.filter((record) => {
+      // 除外対象の従業員は集計に含めない
+      if (EXCLUDED_EMPLOYEE_IDS.includes(Number(record.employeeId))) {
+        return false;
+      }
+      return record.date === dateStr;
+    });
 
     return records.reduce((acc, record) => {
       acc[record.workType] = (acc[record.workType] || 0) + 1;
@@ -561,6 +605,11 @@ const AttendanceApp: React.FC = () => {
     const day = date.getDay();
     return day >= 1 && day <= 5; // 月曜日(1)から金曜日(5)まで
   };
+  
+  // 土曜日かどうかを判定する関数
+  const isSaturday = (date: Date): boolean => {
+    return date.getDay() === 6; // 土曜日(6)
+  };
 
   // 条件1の勤務区分リスト
   const WARNING_WORK_TYPES_CONDITION1 = [
@@ -569,12 +618,21 @@ const AttendanceApp: React.FC = () => {
 
   // 条件2の勤務区分リスト
   const WARNING_WORK_TYPES_CONDITION2 = ["A", "P", "a", "p"];
+  
+  // 条件3の勤務区分リスト (土曜日用 - 条件1と同じリストを使用)
+  const WARNING_WORK_TYPES_CONDITION3 = WARNING_WORK_TYPES_CONDITION1;
 
   // 特定の勤務区分の合計人数をカウントする関数
   const countSpecificWorkTypes = (date: Date, workTypeList: string[]): number => {
     const dateStr = format(date, "yyyy-MM-dd");
     const records = attendanceData.filter(
-      record => record.date === dateStr && workTypeList.includes(record.workType)
+      record => {
+        // 除外対象の従業員はカウントしない
+        if (EXCLUDED_EMPLOYEE_IDS.includes(Number(record.employeeId))) {
+          return false;
+        }
+        return record.date === dateStr && workTypeList.includes(record.workType);
+      }
     );
     return records.length;
   };
@@ -620,10 +678,20 @@ const AttendanceApp: React.FC = () => {
     const count = countSpecificWorkTypes(date, WARNING_WORK_TYPES_CONDITION2);
     return count >= 4;
   };
+  
+  // 条件3: 土曜日で特定の勤務区分の合計が6人以上
+  const checkCondition3 = (date: Date): boolean => {
+    if (!isSaturday(date)) {
+      return false;
+    }
+    
+    const count = countSpecificWorkTypes(date, WARNING_WORK_TYPES_CONDITION3);
+    return count >= 6;
+  };
 
   // 警告表示が必要かどうかを判定する総合関数
   const shouldShowWarning = (date: Date): boolean => {
-    return checkCondition1(date) || checkCondition2(date);
+    return checkCondition1(date) || checkCondition2(date) || checkCondition3(date);
   };
   
   // トースト通知を表示
@@ -737,12 +805,59 @@ const AttendanceApp: React.FC = () => {
     setAttendanceData(newAttendanceData);
     return newAttendanceData;
   };
+  
+  // 利用可能な月リストを生成（過去24ヶ月〜将来3ヶ月まで）
+  const getAvailableMonths = (): Date[] => {
+    const months: Date[] = [];
+    const now = new Date();
+    
+    // 過去24ヶ月
+    for (let i = 24; i > 0; i--) {
+      months.push(subMonths(startOfMonth(now), i));
+    }
+    
+    // 現在の月
+    months.push(startOfMonth(now));
+    
+    // 将来3ヶ月
+    for (let i = 1; i <= 3; i++) {
+      months.push(addMonths(startOfMonth(now), i));
+    }
+    
+    return months;
+  };
+  
+  // 月選択モーダルを表示
+  const showMonthSelection = (mode: "export" | "reset") => {
+    setMonthSelectionMode(mode);
+    setSelectedMonth(currentDate);
+    setShowMonthSelectionModal(true);
+  };
+  
+  // 「〇〇年〇月」形式で日付を表示
+  const formatMonthDisplay = (date: Date): string => {
+    return format(date, "yyyy年M月");
+  };
+  
+  // 特定の月に含まれるデータをフィルタリング
+  const filterDataByMonth = <T extends { date: string }>(data: T[], month: Date): T[] => {
+    const year = month.getFullYear();
+    const monthNum = month.getMonth();
+    
+    return data.filter(item => {
+      const itemDate = new Date(item.date);
+      return itemDate.getFullYear() === year && itemDate.getMonth() === monthNum;
+    });
+  };
   //---------------------------------------------------------------
   // データ操作関数
   //---------------------------------------------------------------
   // 勤務データをエクスポート
-  const exportToExcel = () => {
-    const data = attendanceData.map((record) => ({
+  const exportToExcel = (month: Date = currentDate) => {
+    const monthStr = format(month, "yyyy-MM");
+    const monthData = filterDataByMonth(attendanceData, month);
+    
+    const data = monthData.map((record) => ({
       従業員名: employees.find((emp) => emp.id.toString() === record.employeeId)?.name,
       日付: record.date,
       勤務区分: workTypes.find((w) => w.id === record.workType)?.label,
@@ -751,9 +866,10 @@ const AttendanceApp: React.FC = () => {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "勤務記録");
-    XLSX.writeFile(wb, `勤務記録_${format(currentDate, "yyyy年M月")}.xlsx`);
+    XLSX.writeFile(wb, `勤務記録_${format(month, "yyyy年M月")}.xlsx`);
     
-    showToast("エクセルファイルのエクスポートが完了しました", "success");
+    showToast(`${format(month, "yyyy年M月")}の勤務データをエクスポートしました`, "success");
+    setShowMonthSelectionModal(false);
   };
 
   // 全データリセット
@@ -782,10 +898,10 @@ const AttendanceApp: React.FC = () => {
   };
   
   // 月次データをリセット
-  const resetMonthData = () => {
-    const targetMonth = format(currentDate, "yyyy-MM");
+  const resetMonthData = (month: Date = currentDate) => {
+    const targetMonth = format(month, "yyyy-MM");
     
-    showConfirm(`${format(currentDate, "yyyy年M月")}のデータのみをリセットしますか？この操作は元に戻せません。`, async () => {
+    showConfirm(`${format(month, "yyyy年M月")}のデータのみをリセットしますか？この操作は元に戻せません。`, async () => {
       try {
         const success = await StorageService.deleteMonthData(targetMonth);
         
@@ -807,7 +923,8 @@ const AttendanceApp: React.FC = () => {
             setFirebaseStorageInfo(info);
           }
           
-          showSuccess(`${format(currentDate, "yyyy年M月")}のデータをリセットしました`);
+          showSuccess(`${format(month, "yyyy年M月")}のデータをリセットしました`);
+          setShowMonthSelectionModal(false);
         } else {
           showToast("データのリセットに失敗しました", "error");
         }
@@ -1170,8 +1287,10 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   });
+  
   // CalendarViewコンポーネント
   const CalendarView = React.memo(() => {
+    
     return (
       <div className="p-4">
         <div className="calendar-grid">
@@ -1229,9 +1348,9 @@ const AttendanceApp: React.FC = () => {
                   </div>
                 )}
                 
-                {/* 勤務区分の集計 */}
+                {/* 勤務区分の集計 - 表示順を指定順に変更 */}
                 <div className="text-xs space-y-1 mt-1">
-                  {Object.entries(dailySummary).map(([type, count]) => {
+                  {sortWorkTypeSummary(dailySummary).map(([type, count]) => {
                     const workTypeLabel =
                       workTypes.find((w) => w.id === type)?.label || type;
                     return (
@@ -1290,6 +1409,7 @@ const AttendanceApp: React.FC = () => {
       </div>
     );
   });
+  
   // 単一従業員カレンダービュー
   const SingleEmployeeCalendarView = React.memo(() => {
     if (!selectedEmployee) return null;
@@ -1702,7 +1822,7 @@ const AttendanceApp: React.FC = () => {
       >
         <div className="space-y-4 p-4">
           {Object.entries(calculateDailySummary(selectedDateDetails.date)).length > 0 ? (
-            Object.entries(calculateDailySummary(selectedDateDetails.date)).map(
+            sortWorkTypeSummary(calculateDailySummary(selectedDateDetails.date)).map(
               ([type, count]) => {
                 const workTypeLabel =
                   workTypes.find((w) => w.id === type)?.label || type;
@@ -2060,6 +2180,85 @@ const AttendanceApp: React.FC = () => {
     );
   };
 
+  // 月選択モーダル
+  const MonthSelectionModal = () => {
+    const availableMonths = getAvailableMonths();
+    
+    const handleAction = () => {
+      if (monthSelectionMode === "export") {
+        exportToExcel(selectedMonth);
+      } else {
+        resetMonthData(selectedMonth);
+      }
+    };
+    
+    return (
+      <Modal
+        isOpen={showMonthSelectionModal}
+        onClose={() => setShowMonthSelectionModal(false)}
+        title={monthSelectionMode === "export" ? "勤務データをエクスポート" : "月次データリセット"}
+      >
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              月を選択してください
+            </label>
+            <select
+              value={format(selectedMonth, "yyyy-MM")}
+              onChange={(e) => {
+                const [year, month] = e.target.value.split("-").map(Number);
+                setSelectedMonth(new Date(year, month - 1, 1));
+              }}
+              className="w-full p-2 border rounded"
+            >
+              {availableMonths.map((month) => (
+                <option key={format(month, "yyyy-MM")} value={format(month, "yyyy-MM")}>
+                  {formatMonthDisplay(month)}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          {monthSelectionMode === "export" ? (
+            <div className="mt-4">
+              <p className="text-sm">
+                選択した月の勤務データをExcelファイルとしてエクスポートします。
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <p className="text-sm text-red-600 font-bold">
+                警告: この操作は元に戻せません。
+              </p>
+              <p className="text-sm mt-1">
+                選択した月の全てのデータ（勤務記録と予定）を削除します。
+              </p>
+            </div>
+          )}
+          
+          <div className="flex justify-end gap-2 pt-4">
+            <button
+              onClick={() => setShowMonthSelectionModal(false)}
+              className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={handleAction}
+              className={`px-4 py-2 ${
+                monthSelectionMode === "export" 
+                  ? "bg-blue-500 hover:bg-blue-600" 
+                  : "bg-red-500 hover:bg-red-600"
+              } text-white rounded`}
+            >
+              {monthSelectionMode === "export" ? "エクスポート" : "リセット"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
   // 管理者設定トグル
   const AdminToggle = () => {
     return (
@@ -2172,7 +2371,7 @@ const AttendanceApp: React.FC = () => {
                 {/* エクスポートボタン - 管理者モードのみ表示 */}
                 {isAdminMode && (
                   <button
-                    onClick={exportToExcel}
+                    onClick={() => showMonthSelection("export")}
                     className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
                   >
                     勤務データをエクスポート
@@ -2189,10 +2388,10 @@ const AttendanceApp: React.FC = () => {
                     </button>
                     <div className="absolute right-0 mt-1 w-48 bg-white rounded shadow-lg hidden group-hover:block z-50">
                       <button
-                        onClick={resetMonthData}
+                        onClick={() => showMonthSelection("reset")}
                         className="block w-full text-left px-4 py-2 hover:bg-gray-100"
                       >
-                        {format(currentDate, "yyyy年M月")}のデータのみリセット
+                        月次データリセット
                       </button>
                       <button
                         onClick={resetAllData}
@@ -2230,6 +2429,7 @@ const AttendanceApp: React.FC = () => {
             <AttendanceDetailModal />
             <ScheduleModal />
             <StorageUsageModal />
+            <MonthSelectionModal />
             <ConfirmModal
               isOpen={showConfirmModal}
               onClose={() => setShowConfirmModal(false)}
