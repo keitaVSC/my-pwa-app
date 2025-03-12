@@ -1836,29 +1836,36 @@ const AttendanceApp: React.FC = () => {
                       {workTypeLabel}: {count}名
                     </div>
                     <div className="text-sm text-gray-600">
-                      {records.map((record) => (
-                        <div key={record.employeeId} className="flex justify-between">
-                          <span>{record.employeeName}</span>
-                          {isAdminMode && (
-                            <button
-                              onClick={() => {
-                                const emp = employees.find(e => e.id.toString() === record.employeeId);
-                                if (emp) {
-                                  setSelectedCell({
-                                    employeeId: emp.id,
-                                    date: selectedDateDetails.date
-                                  });
-                                  setShowAttendanceDetailModal(false);
-                                  setShowWorkTypeModal(true);
-                                }
-                              }}
-                              className="text-blue-500 hover:underline"
-                            >
-                              編集
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                      {records
+                        // 従業員リストの順序と同じ順で表示するためにソート
+                        .sort((a, b) => {
+                          const empAIndex = employees.findIndex(e => e.id.toString() === a.employeeId);
+                          const empBIndex = employees.findIndex(e => e.id.toString() === b.employeeId);
+                          return empAIndex - empBIndex;
+                        })
+                        .map((record) => (
+                          <div key={record.employeeId} className="flex justify-between">
+                            <span>{record.employeeName}</span>
+                            {isAdminMode && (
+                              <button
+                                onClick={() => {
+                                  const emp = employees.find(e => e.id.toString() === record.employeeId);
+                                  if (emp) {
+                                    setSelectedCell({
+                                      employeeId: emp.id,
+                                      date: selectedDateDetails.date
+                                    });
+                                    setShowAttendanceDetailModal(false);
+                                    setShowWorkTypeModal(true);
+                                  }
+                                }}
+                                className="text-blue-500 hover:underline"
+                              >
+                                編集
+                              </button>
+                            )}
+                          </div>
+                        ))}
                     </div>
                   </div>
                 );
