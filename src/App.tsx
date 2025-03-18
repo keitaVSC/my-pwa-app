@@ -80,7 +80,8 @@ interface AttendanceRecord {
 // 予定
 interface ScheduleItem {
   id: string;
-  employeeId: string;
+  employeeId: string;  // 後方互換性のために維持
+  employeeIds: string[]; // 複数従業員対応
   date: string;
   title: string;
   details?: string;
@@ -118,7 +119,7 @@ const WORK_TYPE_DISPLAY_ORDER = [
   "休", "年", "Ap", "a3/P", "a2/P", "a1/P", "A/p3", "A/p2", "A/p1", 
   "A", "P", "半1", "半5", "a", "p", "a3", "a2", "a1", "p3", "p2", "p1",
   // 残りの勤務区分（順序指定外）
-  "Fビ", "日", "遅1", "遅2", "早1", "早2", "短", "短土"
+  "Fビ", "日", "遅1", "遅2", "早1", "早2", "短", "短土", "特"
 ];
 
 //=====================================================================
@@ -174,10 +175,12 @@ const workTypes: WorkType[] = [
   { id: "p3", label: "p3" },
   { id: "a1/P", label: "a1/P" },
   { id: "a2/P", label: "a2/P" },
-  { id: "a3/P", label: "a3/P" },
   { id: "A/p1", label: "A/p1" },
   { id: "A/p2", label: "A/p2" },
-  { id: "A/p3", label: "A/p3" },
+  { id: "a1/p", label: "a1/p" },
+  { id: "a2/p", label: "a2/p" },
+  { id: "a/p1", label: "a/p1" },
+  { id: "a/p2", label: "a/p2" },
   { id: "日", label: "日" },
   { id: "遅1", label: "遅1" },
   { id: "遅2", label: "遅2" },
@@ -187,6 +190,7 @@ const workTypes: WorkType[] = [
   { id: "半5", label: "半5" },
   { id: "短", label: "短" },
   { id: "短土", label: "短土" },
+  { id: "特", label: "特" },
 ];
 //=====================================================================
 // Part 4: メインコンポーネント
@@ -586,7 +590,12 @@ const AttendanceApp: React.FC = () => {
     return scheduleData.filter(
       schedule => 
         schedule.date === dateStr && 
-        (schedule.employeeId === employeeId.toString() || schedule.employeeId === "")
+        (schedule.employeeId === "" || // 後方互換性のため
+         schedule.employeeId === employeeId.toString() || 
+         (schedule.employeeIds && 
+          (schedule.employeeIds.includes(employeeId.toString()) || 
+           schedule.employeeIds.length === 0)) // 空配列は全員向け
+        )
     );
   };
 
@@ -1290,7 +1299,6 @@ const AttendanceApp: React.FC = () => {
   
   // CalendarViewコンポーネント
   const CalendarView = React.memo(() => {
-    
     return (
       <div className="p-4">
         <div className="calendar-grid">
@@ -1367,9 +1375,24 @@ const AttendanceApp: React.FC = () => {
                 {/* 予定の表示 */}
                 <div className="text-xs space-y-1 mt-2">
                   {schedules.map((schedule) => {
-                    const employeeName = schedule.employeeId 
-                      ? employees.find(e => e.id.toString() === schedule.employeeId)?.name 
-                      : "全員";
+                    // 従業員名のテキスト生成
+                    let employeeText = "全員";
+                    
+                    if (schedule.employeeIds && schedule.employeeIds.length > 0) {
+                      // 新形式のデータ
+                      if (schedule.employeeIds.length === 1) {
+                        // 1人だけの場合
+                        const emp = employees.find(e => e.id.toString() === schedule.employeeIds[0]);
+                        employeeText = emp ? emp.name : "不明";
+                      } else {
+                        // 複数人の場合
+                        employeeText = `${schedule.employeeIds.length}人の従業員`;
+                      }
+                    } else if (schedule.employeeId && schedule.employeeId !== "") {
+                      // 旧形式のデータ（個人指定）
+                      const emp = employees.find(e => e.id.toString() === schedule.employeeId);
+                      employeeText = emp ? emp.name : "不明";
+                    }
                     
                     return (
                       <div
@@ -1382,7 +1405,7 @@ const AttendanceApp: React.FC = () => {
                           setSelectedScheduleItem(schedule);
                           setShowScheduleModal(true);
                         }}
-                        title={`${schedule.title}${schedule.details ? ` - ${schedule.details}` : ''} (${employeeName})`}
+                        title={`${schedule.title}${schedule.details ? ` - ${schedule.details}` : ''} (${employeeText})`}
                       >
                         {schedule.title}
                       </div>
@@ -1882,15 +1905,39 @@ const AttendanceApp: React.FC = () => {
             <h3 className="font-bold border-b pb-1 mb-2">予定</h3>
             {getScheduleForDate(selectedDateDetails.date).length > 0 ? (
               getScheduleForDate(selectedDateDetails.date).map(schedule => {
-                const employeeName = schedule.employeeId 
-                  ? employees.find(e => e.id.toString() === schedule.employeeId)?.name 
-                  : "全員";
+                // 従業員名のテキスト生成
+                let employeeText = "全員";
+                
+                if (schedule.employeeIds && schedule.employeeIds.length > 0) {
+                  // 新形式のデータ
+                  if (schedule.employeeIds.length === 1) {
+                    // 1人だけの場合
+                    const emp = employees.find(e => e.id.toString() === schedule.employeeIds[0]);
+                    employeeText = emp ? emp.name : "不明";
+                  } else {
+                    // 複数人の場合（最大2名まで表示し、それ以上は数で表示）
+                    const empNames = schedule.employeeIds.map(id => {
+                      const emp = employees.find(e => e.id.toString() === id);
+                      return emp ? emp.name : "不明";
+                    });
+                    
+                    if (empNames.length <= 2) {
+                      employeeText = empNames.join('、');
+                    } else {
+                      employeeText = `${empNames[0]}、${empNames[1]}他 (計${empNames.length}人)`;
+                    }
+                  }
+                } else if (schedule.employeeId && schedule.employeeId !== "") {
+                  // 旧形式のデータ（個人指定）
+                  const emp = employees.find(e => e.id.toString() === schedule.employeeId);
+                  employeeText = emp ? emp.name : "不明";
+                }
                 
                 return (
                   <div key={schedule.id} className="mb-2 p-2 rounded" style={{ backgroundColor: `${schedule.color}20` }}>
                     <div className="font-medium flex justify-between">
                       <span>{schedule.title}</span>
-                      <span className="text-sm text-gray-600">{employeeName}</span>
+                      <span className="text-sm text-gray-600">{employeeText}</span>
                     </div>
                     {schedule.details && (
                       <div className="text-sm text-gray-600 mt-1">{schedule.details}</div>
@@ -1947,7 +1994,8 @@ const AttendanceApp: React.FC = () => {
     const [title, setTitle] = useState("");
     const [details, setDetails] = useState("");
     const [color, setColor] = useState(PRESET_COLORS[0].value);
-    const [empId, setEmpId] = useState(selectedEmployee || "");
+    const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
+    const [isAllEmployees, setIsAllEmployees] = useState(true);
     
     // 編集モードの場合は既存の値をセット
     useEffect(() => {
@@ -1955,25 +2003,53 @@ const AttendanceApp: React.FC = () => {
         setTitle(selectedScheduleItem.title);
         setDetails(selectedScheduleItem.details || "");
         setColor(selectedScheduleItem.color || PRESET_COLORS[0].value);
-        setEmpId(selectedScheduleItem.employeeId);
+        
+        // 既存データの互換性対応
+        if (selectedScheduleItem.employeeIds && selectedScheduleItem.employeeIds.length > 0) {
+          // 新しい形式のデータ
+          setSelectedEmployees(selectedScheduleItem.employeeIds);
+          setIsAllEmployees(selectedScheduleItem.employeeIds.length === 0);
+        } else {
+          // 古い形式のデータ
+          if (selectedScheduleItem.employeeId) {
+            setSelectedEmployees(
+              selectedScheduleItem.employeeId === "" ? [] : [selectedScheduleItem.employeeId]
+            );
+            setIsAllEmployees(selectedScheduleItem.employeeId === "");
+          } else {
+            setSelectedEmployees([]);
+            setIsAllEmployees(true);
+          }
+        }
       } else {
         setTitle("");
         setDetails("");
         setColor(PRESET_COLORS[0].value);
-        setEmpId(selectedEmployee || "");
+        setSelectedEmployees([]);
+        setIsAllEmployees(true);
       }
-    }, [selectedScheduleItem, selectedEmployee]);
+    }, [selectedScheduleItem]);
 
     const handleSubmit = () => {
       if (!title.trim() || !selectedScheduleDate) return;
       
       const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
       
+      // 対象の従業員設定
+      const employeeIds = isAllEmployees ? [] : selectedEmployees;
+      
       if (selectedScheduleItem) {
         // 既存の予定を更新
         const newScheduleData = scheduleData.map(item => 
           item.id === selectedScheduleItem.id 
-            ? { ...item, title, details, color, employeeId: empId }
+            ? { 
+                ...item, 
+                title, 
+                details, 
+                color, 
+                employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
+                employeeIds: employeeIds
+              }
             : item
         );
         setScheduleData(newScheduleData);
@@ -1982,7 +2058,8 @@ const AttendanceApp: React.FC = () => {
         // 新規予定を追加
         const newScheduleItem: ScheduleItem = {
           id: Date.now().toString(),
-          employeeId: empId,
+          employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
+          employeeIds: employeeIds,
           date: dateStr,
           title,
           details,
@@ -1993,6 +2070,19 @@ const AttendanceApp: React.FC = () => {
       }
       
       closeScheduleModal();
+    };
+    
+    const handleEmployeeToggle = (employeeId: string) => {
+      // 全員向けがオンの場合は選択できない
+      if (isAllEmployees) return;
+      
+      setSelectedEmployees(prev => {
+        if (prev.includes(employeeId)) {
+          return prev.filter(id => id !== employeeId);
+        } else {
+          return [...prev, employeeId];
+        }
+      });
     };
     
     const handleDelete = () => {
@@ -2027,19 +2117,40 @@ const AttendanceApp: React.FC = () => {
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">従業員</label>
-            <select
-              value={empId}
-              onChange={(e) => setEmpId(e.target.value)}
-              className="w-full p-2 border rounded"
-            >
-              <option value="">全員共通</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id.toString()}>
-                  {emp.name}
-                </option>
-              ))}
-            </select>
+            <label className="block text-sm font-medium text-gray-700 mb-1">対象者</label>
+            <div className="mb-2">
+              <div className="flex items-center mb-2">
+                <input
+                  type="checkbox"
+                  id="allEmployees"
+                  checked={isAllEmployees}
+                  onChange={(e) => setIsAllEmployees(e.target.checked)}
+                  className="mr-2"
+                />
+                <label htmlFor="allEmployees" className="text-sm font-medium">全員共通</label>
+              </div>
+              
+              {!isAllEmployees && (
+                <div className="max-h-40 overflow-y-auto border rounded p-2">
+                  {employees.map(emp => (
+                    <div key={emp.id} className="flex items-center my-1">
+                      <input
+                        type="checkbox"
+                        id={`emp-${emp.id}`}
+                        checked={selectedEmployees.includes(emp.id.toString())}
+                        onChange={() => handleEmployeeToggle(emp.id.toString())}
+                        className="mr-2"
+                      />
+                      <label htmlFor={`emp-${emp.id}`} className="text-sm">{emp.name}</label>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {!isAllEmployees && selectedEmployees.length === 0 && (
+              <p className="text-sm text-red-500">※ 少なくとも1人の従業員を選択してください。</p>
+            )}
           </div>
           
           <div>
@@ -2107,7 +2218,7 @@ const AttendanceApp: React.FC = () => {
             <button
               onClick={handleSubmit}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              disabled={!title.trim()}
+              disabled={!title.trim() || (!isAllEmployees && selectedEmployees.length === 0)}
             >
               {selectedScheduleItem ? "更新" : "追加"}
             </button>
