@@ -981,7 +981,7 @@ const AttendanceApp: React.FC = () => {
   const TableView = React.memo(() => {
     // スクロール位置を保持するための参照を追加
     const tableContainerRef = useRef<HTMLDivElement>(null);
-    const [lastScrollPosition, setLastScrollPosition] = useState({ x: 0, y: 0 });
+    const [scrollMemory, setScrollMemory] = useState({ x: 0, y: 0, shouldRestore: false });
 
     const daysInMonth = new Date(
       currentDate.getFullYear(),
@@ -993,15 +993,38 @@ const AttendanceApp: React.FC = () => {
       new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
     );
 
-    // セル選択時のスクロール位置保持処理
-    const handleCellClick = (e: React.MouseEvent, employeeId: number, date: Date) => {
-      // 現在のスクロール位置を保存
+    // スクロール位置を記憶する関数
+    const rememberScrollPosition = () => {
       if (tableContainerRef.current) {
-        setLastScrollPosition({
+        setScrollMemory({
           x: tableContainerRef.current.scrollLeft,
-          y: tableContainerRef.current.scrollTop
+          y: tableContainerRef.current.scrollTop,
+          shouldRestore: true
         });
       }
+    };
+
+    // スクロール位置を復元するためのuseEffect
+    useEffect(() => {
+      if (scrollMemory.shouldRestore && tableContainerRef.current) {
+        // 次のレンダリングサイクルで実行するために setTimeout を使用
+        const timeoutId = setTimeout(() => {
+          if (tableContainerRef.current) {
+            tableContainerRef.current.scrollLeft = scrollMemory.x;
+            tableContainerRef.current.scrollTop = scrollMemory.y;
+          }
+          // 復元完了フラグをリセット
+          setScrollMemory(prev => ({ ...prev, shouldRestore: false }));
+        }, 0);
+        
+        return () => clearTimeout(timeoutId);
+      }
+    }, [scrollMemory.shouldRestore, showWorkTypeModal, showScheduleModal]);
+
+    // セル選択時のスクロール位置保持処理
+    const handleCellClick = (e: React.MouseEvent, employeeId: number, date: Date) => {
+      // スクロール位置を記憶
+      rememberScrollPosition();
 
       // 通常の選択処理
       if (isBulkEditMode && isAdminMode) {
@@ -1010,22 +1033,14 @@ const AttendanceApp: React.FC = () => {
         setSelectedCell({ employeeId, date });
         setShowWorkTypeModal(true);
       }
-
-      // スクロール位置を復元
-      requestAnimationFrame(() => {
-        if (tableContainerRef.current) {
-          tableContainerRef.current.scrollTo({
-            left: lastScrollPosition.x,
-            top: lastScrollPosition.y,
-            behavior: 'instant'
-          });
-        }
-      });
     };
     
     // 同じ従業員の週区切りでセルを選択
     const selectWeekCells = (employeeId: number, startDate: Date) => {
       if (!isBulkEditMode || !isAdminMode) return;
+      
+      // スクロール位置を記憶
+      rememberScrollPosition();
       
       // 週の開始日（日曜日）
       const startOfWeek = new Date(startDate);
@@ -1078,7 +1093,10 @@ const AttendanceApp: React.FC = () => {
           <div className="flex gap-2 items-center flex-wrap">
             <select
               value={selectedEmployee}
-              onChange={(e) => setSelectedEmployee(e.target.value)}
+              onChange={(e) => {
+                rememberScrollPosition();
+                setSelectedEmployee(e.target.value);
+              }}
               className="w-64 p-2 border rounded"
             >
               <option value="">全従業員を表示</option>
@@ -1093,6 +1111,7 @@ const AttendanceApp: React.FC = () => {
               <div className="flex items-center gap-2 ml-4 flex-wrap">
                 <button
                   onClick={() => {
+                    rememberScrollPosition();
                     setIsBulkEditMode(!isBulkEditMode);
                     if (!isBulkEditMode) {
                       setSelectedCells([]);
@@ -1108,7 +1127,10 @@ const AttendanceApp: React.FC = () => {
                 {isBulkEditMode && (
                   <>
                     <button
-                      onClick={() => setSelectedCells([])}
+                      onClick={() => {
+                        rememberScrollPosition();
+                        setSelectedCells([]);
+                      }}
                       className="px-3 py-1 rounded bg-gray-200"
                       disabled={selectedCells.length === 0}
                     >
@@ -1116,7 +1138,10 @@ const AttendanceApp: React.FC = () => {
                     </button>
                     
                     <button
-                      onClick={() => setIsMobileSelectMode(!isMobileSelectMode)}
+                      onClick={() => {
+                        rememberScrollPosition();
+                        setIsMobileSelectMode(!isMobileSelectMode);
+                      }}
                       className={`px-3 py-1 rounded ${
                         isMobileSelectMode ? 'bg-blue-500 text-white' : 'bg-gray-200'
                       } text-sm md:text-base`}
@@ -1127,6 +1152,7 @@ const AttendanceApp: React.FC = () => {
                     {selectedCells.length > 0 && (
                       <button
                         onClick={() => {
+                          rememberScrollPosition();
                           setShowWorkTypeModal(true);
                         }}
                         className="px-3 py-1 rounded bg-blue-500 text-white"
@@ -1151,8 +1177,9 @@ const AttendanceApp: React.FC = () => {
         <div 
           ref={tableContainerRef}
           className="attendance-table-wrapper"
+          style={{ overscrollBehavior: 'none' }}
         >
-          <div className="attendance-table-container">
+          <div className="attendance-table-container" style={{ WebkitOverflowScrolling: 'touch' }}>
             <table className="border-collapse attendance-table">
               <thead>
                 <tr>
@@ -1210,6 +1237,7 @@ const AttendanceApp: React.FC = () => {
                           `}
                           onClick={() => {
                             if (isBulkEditMode && isAdminMode) {
+                              rememberScrollPosition();
                               if (selectedCount === dates.length) {
                                 clearSelectionForEmployee(employee.id);
                               } else {
@@ -1267,6 +1295,7 @@ const AttendanceApp: React.FC = () => {
                                         title={schedule.title}
                                         onClick={(e) => {
                                           e.stopPropagation();
+                                          rememberScrollPosition();
                                           setSelectedScheduleDate(date);
                                           setSelectedScheduleItem(schedule);
                                           setShowScheduleModal(true);
@@ -1435,17 +1464,43 @@ const AttendanceApp: React.FC = () => {
   
   // 単一従業員カレンダービュー
   const SingleEmployeeCalendarView = React.memo(() => {
+    // スクロール位置のための状態を追加
+    const [scrollPosition, setScrollPosition] = useState({ x: 0, y: 0 });
+    const calendarContainerRef = useRef<HTMLDivElement>(null);
+
+    // スクロール位置を記憶する関数
+    const rememberScrollPosition = () => {
+      if (calendarContainerRef.current) {
+        setScrollPosition({
+          x: window.scrollX,
+          y: window.scrollY
+        });
+      }
+    };
+
+    // スクロール位置を復元する
+    useEffect(() => {
+      if (scrollPosition.x !== 0 || scrollPosition.y !== 0) {
+        setTimeout(() => {
+          window.scrollTo(scrollPosition.x, scrollPosition.y);
+        }, 0);
+      }
+    }, [showWorkTypeModal, showScheduleModal, scrollPosition]);
+
     if (!selectedEmployee) return null;
     
     const employeeId = parseInt(selectedEmployee);
     const employeeName = employees.find(emp => emp.id === employeeId)?.name || "従業員";
     
     return (
-      <div className="p-4">
+      <div className="p-4" ref={calendarContainerRef}>
         <div className="mb-4 flex gap-2 items-center">
           <select
             value={selectedEmployee}
-            onChange={(e) => setSelectedEmployee(e.target.value)}
+            onChange={(e) => {
+              rememberScrollPosition();
+              setSelectedEmployee(e.target.value);
+            }}
             className="w-64 p-2 border rounded"
           >
             <option value="">全従業員を表示</option>
@@ -1460,6 +1515,7 @@ const AttendanceApp: React.FC = () => {
             <div className="flex items-center gap-2 ml-4">
               <button
                 onClick={() => {
+                  rememberScrollPosition();
                   setIsBulkEditMode(!isBulkEditMode);
                   if (!isBulkEditMode) {
                     setSelectedCells([]);
@@ -1475,7 +1531,10 @@ const AttendanceApp: React.FC = () => {
               {isBulkEditMode && (
                 <>
                   <button
-                    onClick={() => setSelectedCells([])}
+                    onClick={() => {
+                      rememberScrollPosition();
+                      setSelectedCells([]);
+                    }}
                     className="px-3 py-1 rounded bg-gray-200"
                     disabled={selectedCells.length === 0}
                   >
@@ -1483,7 +1542,10 @@ const AttendanceApp: React.FC = () => {
                   </button>
                   
                   <button
-                    onClick={() => setIsMobileSelectMode(!isMobileSelectMode)}
+                    onClick={() => {
+                      rememberScrollPosition();
+                      setIsMobileSelectMode(!isMobileSelectMode);
+                    }}
                     className={`px-3 py-1 rounded ${
                       isMobileSelectMode ? 'bg-blue-500 text-white' : 'bg-gray-200'
                     } text-sm md:text-base`}
@@ -1494,6 +1556,7 @@ const AttendanceApp: React.FC = () => {
                   {selectedCells.length > 0 && (
                     <button
                       onClick={() => {
+                        rememberScrollPosition();
                         setShowWorkTypeModal(true);
                       }}
                       className="px-3 py-1 rounded bg-blue-500 text-white"
@@ -1543,6 +1606,7 @@ const AttendanceApp: React.FC = () => {
                 }`}
                 onClick={(e) => {
                   if (isCurrentMonth) {
+                    rememberScrollPosition();
                     if (isBulkEditMode && isAdminMode) {
                       toggleCellSelection(employeeId, date, e.ctrlKey || isCtrlPressed);
                     } else {
@@ -1589,6 +1653,7 @@ const AttendanceApp: React.FC = () => {
                         style={{ backgroundColor: schedule.color || '#4A90E2' }}
                         onClick={(e) => {
                           e.stopPropagation();
+                          rememberScrollPosition();
                           setSelectedScheduleDate(date);
                           setSelectedScheduleItem(schedule);
                           setShowScheduleModal(true);

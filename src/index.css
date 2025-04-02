@@ -79,6 +79,8 @@
   height: calc(100vh - 200px);
   overflow: hidden;
   background: white;
+  /* スクロール動作の改善 */
+  overscroll-behavior: none;
 }
 
 .attendance-table-container {
@@ -87,6 +89,8 @@
   -webkit-overflow-scrolling: touch;
   width: 100%;
   touch-action: manipulation;
+  /* スクロール位置保持のための設定 */
+  scroll-behavior: auto;
 }
 
 .attendance-table {
@@ -152,8 +156,10 @@
   .attendance-table-container {
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    /* モバイル専用のスクロール設定 */
     touch-action: pan-x pan-y pinch-zoom;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
+    overscroll-behavior: none;
   }
 
   /* スクロールバーのスタイル */
@@ -273,4 +279,63 @@
 /* 警告用の背景色 */
 .bg-warning-red {
   background-color: rgba(255, 0, 0, 0.1); /* 薄い赤色 */
+}
+
+/* モバイル向けのスクロール位置改善 */
+@media (max-width: 768px) {
+  /* タップのハイライト効果を無効化 */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* スクロール動作の改善 */
+  .attendance-table-container {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: none;
+    touch-action: pan-x pan-y;
+    will-change: transform;
+  }
+  
+  /* タップ遅延を削減 */
+  .attendance-table td, 
+  .attendance-table th,
+  button,
+  select,
+  input[type="checkbox"],
+  .calendar-cell {
+    touch-action: manipulation;
+  }
+}
+
+/* スクロールトップボタン（オプション） */
+.scroll-top-button {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  background-color: rgba(59, 130, 246, 0.8);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.scroll-top-button:hover {
+  background-color: rgba(59, 130, 246, 1);
+}
+
+/* モーダル関連追加スタイル */
+.modal-body {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-overlay {
+  overscroll-behavior: none;
 }
