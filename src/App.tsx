@@ -212,6 +212,10 @@ const AttendanceApp: React.FC = () => {
   // オフライン状態の管理
   const [isOffline, setIsOffline] = useState<boolean>(false);
   const [pendingChanges, setPendingChanges] = useState<boolean>(false);
+  
+  // スクロール位置のグローバル管理
+  const [globalScrollPosition, setGlobalScrollPosition] = useState({ x: 0, y: 0 });
+  const tableContainerGlobalRef = useRef<HTMLDivElement | null>(null);
 
   // Firebase使用状況
   const [firebaseStorageInfo, setFirebaseStorageInfo] = useState<{
@@ -400,7 +404,18 @@ const AttendanceApp: React.FC = () => {
       setSelectedCells([]);
       setIsMobileSelectMode(false);
     }
-  }, [isAdminMode]);
+    
+    // 管理者モードの切り替え後、少し遅延させてからスクロール位置を復元
+    if (currentView === "table" && tableContainerGlobalRef.current) {
+      const timer = setTimeout(() => {
+        if (tableContainerGlobalRef.current) {
+          tableContainerGlobalRef.current.scrollLeft = globalScrollPosition.x;
+          tableContainerGlobalRef.current.scrollTop = globalScrollPosition.y;
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isAdminMode, currentView, globalScrollPosition]);
 
   // 状態変更時のLocalStorage保存
   useEffect(() => {
@@ -506,6 +521,16 @@ const AttendanceApp: React.FC = () => {
       newViewportMeta.name = 'viewport';
       newViewportMeta.content = 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes';
       document.getElementsByTagName('head')[0].appendChild(newViewportMeta);
+    }
+  };
+  
+  // テーブルのスクロール位置を取得して保存
+  const captureTableScroll = () => {
+    if (tableContainerGlobalRef.current && currentView === "table") {
+      setGlobalScrollPosition({
+        x: tableContainerGlobalRef.current.scrollLeft,
+        y: tableContainerGlobalRef.current.scrollTop
+      });
     }
   };
 
@@ -993,14 +1018,38 @@ const AttendanceApp: React.FC = () => {
       new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
     );
 
+    // コンポーネントマウント時に参照を共有
+    useEffect(() => {
+      if (tableContainerRef.current) {
+        tableContainerGlobalRef.current = tableContainerRef.current;
+      }
+    }, []);
+
     // スクロール位置を記憶する関数
     const rememberScrollPosition = () => {
       if (tableContainerRef.current) {
-        setScrollMemory({
+        const newPosition = {
           x: tableContainerRef.current.scrollLeft,
           y: tableContainerRef.current.scrollTop,
           shouldRestore: true
+        };
+        setScrollMemory(newPosition);
+        
+        // グローバルスクロール位置も更新
+        setGlobalScrollPosition({
+          x: newPosition.x,
+          y: newPosition.y
         });
+        
+        // 一時的にスクロール位置を localStorage にも保存
+        try {
+          localStorage.setItem('_temp_scroll_pos', JSON.stringify({
+            table: { x: newPosition.x, y: newPosition.y },
+            time: Date.now()
+          }));
+        } catch (e) {
+          console.error('Failed to save scroll position to localStorage:', e);
+        }
       }
     };
 
@@ -1020,11 +1069,27 @@ const AttendanceApp: React.FC = () => {
         return () => clearTimeout(timeoutId);
       }
     }, [scrollMemory.shouldRestore, showWorkTypeModal, showScheduleModal]);
+    
+    // グローバルスクロール位置が変更された場合にも復元を試みる
+    useEffect(() => {
+      if (tableContainerRef.current && globalScrollPosition.x !== 0 && globalScrollPosition.y !== 0) {
+        const timer = setTimeout(() => {
+          if (tableContainerRef.current) {
+            tableContainerRef.current.scrollLeft = globalScrollPosition.x;
+            tableContainerRef.current.scrollTop = globalScrollPosition.y;
+          }
+        }, 0);
+        return () => clearTimeout(timer);
+      }
+    }, [showWorkTypeModal, isAdminMode, isBulkEditMode]);
 
     // セル選択時のスクロール位置保持処理
     const handleCellClick = (e: React.MouseEvent, employeeId: number, date: Date) => {
       // スクロール位置を記憶
       rememberScrollPosition();
+      
+      // グローバルなスクロール位置も更新
+      captureTableScroll();
 
       // 通常の選択処理
       if (isBulkEditMode && isAdminMode) {
@@ -1696,7 +1761,42 @@ const AttendanceApp: React.FC = () => {
         // 一括編集モードの場合は空欄からスタート
         setSelectedWorkType("");
       }
-    }, [showWorkTypeModal, selectedCell, selectedCells, isBulkEditMode, attendanceData]);
+      
+      // モーダル表示時にスクロール位置を記録
+      if (showWorkTypeModal) {
+        try {
+          localStorage.setItem('_modal_scroll_pos', JSON.stringify({
+            x: window.scrollX,
+            y: window.scrollY,
+            table: globalScrollPosition,
+            time: Date.now()
+          }));
+        } catch (e) {
+          console.error('Failed to save scroll position for modal', e);
+        }
+      }
+    }, [showWorkTypeModal, selectedCell, selectedCells, isBulkEditMode, attendanceData, globalScrollPosition]);
+    
+    // モーダルが閉じられた後のスクロール位置復元
+    useEffect(() => {
+      if (!showWorkTypeModal) {
+        const timer = setTimeout(() => {
+          try {
+            // スクロール位置の復元を試みる
+            const savedPos = JSON.parse(localStorage.getItem('_modal_scroll_pos') || '{}');
+            if (savedPos.time && Date.now() - savedPos.time < 60000) {
+              if (tableContainerGlobalRef.current && savedPos.table) {
+                tableContainerGlobalRef.current.scrollLeft = savedPos.table.x;
+                tableContainerGlobalRef.current.scrollTop = savedPos.table.y;
+              }
+            }
+          } catch (e) {
+            console.error('Failed to restore modal scroll position', e);
+          }
+        }, 50);
+        return () => clearTimeout(timer);
+      }
+    }, [showWorkTypeModal]);
 
     const handleSubmit = () => {
       // 一括編集モードの場合
@@ -2448,7 +2548,22 @@ const AttendanceApp: React.FC = () => {
       <div className="fixed bottom-4 right-4 z-50">
         <div className="bg-white p-2 rounded-lg shadow-lg flex flex-col gap-2">
           <button
-            onClick={() => setIsAdminMode(!isAdminMode)}
+            onClick={() => {
+              // スクロール位置を取得してから状態変更
+              captureTableScroll();
+              try {
+                // localStorageにも一時的に保存
+                localStorage.setItem('_admin_toggle_scroll', JSON.stringify({
+                  x: window.scrollX,
+                  y: window.scrollY,
+                  table: globalScrollPosition,
+                  time: Date.now()
+                }));
+              } catch (e) {
+                console.error('Failed to save scroll for admin toggle', e);
+              }
+              setIsAdminMode(!isAdminMode);
+            }}
             className={`p-3 rounded-full ${isAdminMode ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
             title={isAdminMode ? '管理者モード：オン' : '管理者モード：オフ'}
           >
@@ -2461,7 +2576,10 @@ const AttendanceApp: React.FC = () => {
           </button>
           {isAdminMode && (
             <button
-              onClick={showStorageUsage}
+              onClick={() => {
+                captureTableScroll(); // スクロール位置を保存
+                showStorageUsage();
+              }}
               className="p-3 rounded-full bg-gray-200 hover:bg-gray-300"
               title="ストレージ使用状況を確認"
             >
