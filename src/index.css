@@ -339,3 +339,80 @@
 .modal-overlay {
   overscroll-behavior: none;
 }
+/* 同期ボタンのスタイル */
+.sync-button-container {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 2000;
+  pointer-events: auto;
+}
+
+.sync-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #3b82f6;
+  color: white;
+  padding: 10px 16px;
+  border-radius: 9999px;
+  font-weight: 500;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.sync-button:hover {
+  background-color: #2563eb;
+}
+
+.sync-button:active {
+  transform: translateY(1px);
+}
+
+/* モバイル向け最適化 */
+@media (max-width: 768px) {
+  .sync-button-container {
+    bottom: 24px;
+    left: 24px;
+  }
+  
+  .sync-button {
+    padding: 12px 16px;
+  }
+}
+
+/* z-indexの階層管理 */
+.z-highest {
+  z-index: 2000 !important; /* モーダル、クリティカルUI要素 */
+}
+
+.z-high {
+  z-index: 1000 !important; /* トースト、通知 */
+}
+
+.z-medium {
+  z-index: 500 !important; /* フローティングコントロール */
+}
+
+.z-low {
+  z-index: 100 !important; /* 固定ヘッダー、スティッキー要素 */
+}
+
+/* ポインターイベント修正 */
+.pointer-events-auto {
+  pointer-events: auto !important;
+}
+
+.pointer-events-none {
+  pointer-events: none !important;
+}
+
+/* スクロール位置保持の改善 */
+.preserve-scroll {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  will-change: transform;
+}

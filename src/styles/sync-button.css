@@ -1,0 +1,42 @@
+/* src/styles/sync-button.css */
+.sync-button-container {
+    position: fixed;
+    bottom: 1rem;
+    left: 1rem;
+    z-index: 2000;
+    pointer-events: auto;
+    touch-action: auto;
+  }
+  
+  .sync-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background-color: #3b82f6; /* bg-blue-500 */
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border: none;
+    cursor: pointer;
+    position: relative;
+    transition: background-color 0.2s, transform 0.1s;
+  }
+  
+  .sync-button:hover {
+    background-color: #2563eb; /* bg-blue-600 */
+  }
+  
+  .sync-button:active {
+    transform: scale(0.97);
+  }
+  
+  /* アニメーション */
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  
+  .sync-button:active svg {
+    animation: spin 0.5s linear;
+  }

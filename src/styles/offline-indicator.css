@@ -1,0 +1,34 @@
+/* src/styles/offline-indicator.css */
+.offline-indicator {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background-color: #ff9800;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: opacity 0.3s ease;
+    animation: slideUp 0.5s ease-out;
+    z-index: 1900; /* SyncButtonより下に表示 */
+  }
+  
+  @keyframes slideUp {
+    from {
+      transform: translateY(20px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  
+  /* SyncButtonがある場合の位置調整 */
+  .sync-button-container + .offline-indicator {
+    bottom: 60px; /* SyncButtonの下に表示 */
+  }
