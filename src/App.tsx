@@ -289,19 +289,59 @@ const AttendanceApp: React.FC = () => {
   // 副作用（useEffect）
   //---------------------------------------------------------------
   // データの初期化を非同期で行う
+// データの初期化を非同期で行う
   useEffect(() => {
     const initializeData = async () => {
       setIsLoading(true);
       try {
-        // 非同期でFirebaseからデータを取得
-        const attendance = await StorageService.getDataAsync<AttendanceRecord[]>(
-          STORAGE_KEYS.ATTENDANCE_DATA, []
-        );
-        setAttendanceData(attendance);
+        let attendance: AttendanceRecord[] = [];
+        let schedule: ScheduleItem[] = [];
         
-        const schedule = await StorageService.getDataAsync<ScheduleItem[]>(
-          STORAGE_KEYS.SCHEDULE_DATA, []
-        );
+        // まずはローカルストレージから読み込む (バックアップとして)
+        try {
+          const localAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE_DATA);
+          if (localAttendance) {
+            attendance = JSON.parse(localAttendance);
+            console.log("ローカルストレージから勤怠データを読み込みました:", attendance.length);
+          }
+          
+          const localSchedule = localStorage.getItem(STORAGE_KEYS.SCHEDULE_DATA);
+          if (localSchedule) {
+            schedule = JSON.parse(localSchedule);
+            console.log("ローカルストレージから予定データを読み込みました:", schedule.length);
+          }
+        } catch (localError) {
+          console.error("ローカルストレージからの読み込みエラー:", localError);
+        }
+        
+        // Firebaseからデータを取得
+        try {
+          // 非同期でFirebaseからデータを取得
+          const fbAttendance = await StorageService.getDataAsync<AttendanceRecord[]>(
+            STORAGE_KEYS.ATTENDANCE_DATA, []
+          );
+          
+          const fbSchedule = await StorageService.getDataAsync<ScheduleItem[]>(
+            STORAGE_KEYS.SCHEDULE_DATA, []
+          );
+          
+          // Firebaseのデータがある場合のみそれを使用
+          if (fbAttendance && fbAttendance.length > 0) {
+            attendance = fbAttendance;
+            console.log("Firebaseから勤怠データを読み込みました:", attendance.length);
+          }
+          
+          if (fbSchedule && fbSchedule.length > 0) {
+            schedule = fbSchedule;
+            console.log("Firebaseから予定データを読み込みました:", schedule.length);
+          }
+        } catch (fbError) {
+          console.error("Firebaseからの読み込みエラー:", fbError);
+          showToast("クラウドからのデータ読み込みに失敗しました。ローカルデータを使用します", "warning");
+        }
+        
+        // 読み込んだデータをセット
+        setAttendanceData(attendance);
         setScheduleData(schedule);
         
         // その他の設定も非同期で取得
@@ -588,6 +628,14 @@ const AttendanceApp: React.FC = () => {
         console.log("オフライン状態のため同期できません");
         showToast("オフライン状態のため同期できません", "warning");
         return;
+      }
+      
+      // ローカルストレージに先に保存
+      try {
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
+        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
+      } catch (e) {
+        console.error('Failed to save to localStorage:', e);
       }
       
       // 勤怠データの同期
@@ -2279,7 +2327,7 @@ const CalendarView = React.memo(() => {
       }
     }, [selectedScheduleItem]);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
       if (!title.trim() || !selectedScheduleDate) return;
       
       const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
@@ -2287,9 +2335,11 @@ const CalendarView = React.memo(() => {
       // 対象の従業員設定
       const employeeIds = isAllEmployees ? [] : selectedEmployees;
       
+      let newScheduleData;
+      
       if (selectedScheduleItem) {
         // 既存の予定を更新
-        const newScheduleData = scheduleData.map(item => 
+        newScheduleData = scheduleData.map(item => 
           item.id === selectedScheduleItem.id 
             ? { 
                 ...item, 
@@ -2301,10 +2351,23 @@ const CalendarView = React.memo(() => {
               }
             : item
         );
+        
+        // 状態とローカルストレージ両方を更新
         setScheduleData(newScheduleData);
         
+        // ローカルストレージに直接保存（同期前の保険として）
+        try {
+          localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
+        } catch (e) {
+          console.error('Failed to save schedule to localStorage:', e);
+        }
+        
         // データ更新後に自動同期処理を追加
-        syncChanges();
+        try {
+          await syncChanges();
+        } catch (e) {
+          console.error("予定更新の同期中にエラーが発生:", e);
+        }
         
         showToast("予定を更新しました", "success");
       } else {
@@ -2318,10 +2381,25 @@ const CalendarView = React.memo(() => {
           details,
           color
         };
-        setScheduleData([...scheduleData, newScheduleItem]);
+        
+        newScheduleData = [...scheduleData, newScheduleItem];
+        
+        // 状態とローカルストレージ両方を更新
+        setScheduleData(newScheduleData);
+        
+        // ローカルストレージに直接保存（同期前の保険として）
+        try {
+          localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
+        } catch (e) {
+          console.error('Failed to save schedule to localStorage:', e);
+        }
         
         // データ更新後に自動同期処理を追加
-        syncChanges();
+        try {
+          await syncChanges();
+        } catch (e) {
+          console.error("予定追加の同期中にエラーが発生:", e);
+        }
         
         showToast("新しい予定を追加しました", "success");
       }
