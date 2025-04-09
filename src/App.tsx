@@ -289,7 +289,6 @@ const AttendanceApp: React.FC = () => {
   // 副作用（useEffect）
   //---------------------------------------------------------------
   // データの初期化を非同期で行う
-// データの初期化を非同期で行う
   useEffect(() => {
     const initializeData = async () => {
       setIsLoading(true);
@@ -314,30 +313,41 @@ const AttendanceApp: React.FC = () => {
           console.error("ローカルストレージからの読み込みエラー:", localError);
         }
         
-        // Firebaseからデータを取得
-        try {
-          // 非同期でFirebaseからデータを取得
-          const fbAttendance = await StorageService.getDataAsync<AttendanceRecord[]>(
-            STORAGE_KEYS.ATTENDANCE_DATA, []
-          );
-          
-          const fbSchedule = await StorageService.getDataAsync<ScheduleItem[]>(
-            STORAGE_KEYS.SCHEDULE_DATA, []
-          );
-          
-          // Firebaseのデータがある場合のみそれを使用
-          if (fbAttendance && fbAttendance.length > 0) {
-            attendance = fbAttendance;
-            console.log("Firebaseから勤怠データを読み込みました:", attendance.length);
+        // オンライン状態の場合のみFirebaseからデータを取得を試みる
+        if (navigator.onLine) {
+          try {
+            // 非同期でFirebaseからデータを取得
+            const fbAttendance = await StorageService.getDataAsync<AttendanceRecord[]>(
+              STORAGE_KEYS.ATTENDANCE_DATA, []
+            );
+            
+            const fbSchedule = await StorageService.getDataAsync<ScheduleItem[]>(
+              STORAGE_KEYS.SCHEDULE_DATA, []
+            );
+            
+            // Firebaseのデータがある場合のみそれを使用
+            if (fbAttendance && fbAttendance.length > 0) {
+              attendance = fbAttendance;
+              console.log("Firebaseから勤怠データを読み込みました:", attendance.length);
+              
+              // ローカルストレージも最新のデータで更新
+              localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(fbAttendance));
+            }
+            
+            if (fbSchedule && fbSchedule.length > 0) {
+              schedule = fbSchedule;
+              console.log("Firebaseから予定データを読み込みました:", schedule.length);
+              
+              // ローカルストレージも最新のデータで更新
+              localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(fbSchedule));
+            }
+          } catch (fbError) {
+            console.error("Firebaseからの読み込みエラー:", fbError);
+            showToast("クラウドからのデータ読み込みに失敗しました。ローカルデータを使用します", "warning");
           }
-          
-          if (fbSchedule && fbSchedule.length > 0) {
-            schedule = fbSchedule;
-            console.log("Firebaseから予定データを読み込みました:", schedule.length);
-          }
-        } catch (fbError) {
-          console.error("Firebaseからの読み込みエラー:", fbError);
-          showToast("クラウドからのデータ読み込みに失敗しました。ローカルデータを使用します", "warning");
+        } else {
+          console.log("オフライン状態のため、ローカルデータのみを使用します");
+          showToast("オフライン状態のため、ローカルデータのみを使用します", "info");
         }
         
         // 読み込んだデータをセット
@@ -345,34 +355,79 @@ const AttendanceApp: React.FC = () => {
         setScheduleData(schedule);
         
         // その他の設定も非同期で取得
-        const currentView = await StorageService.getDataAsync<View>(
-          STORAGE_KEYS.CURRENT_VIEW, "calendar"
-        );
-        setCurrentView(currentView);
+        let currentView: View = "calendar";
+        let savedDate = new Date();
+        let selectedEmp = "";
+        let adminMode = false;
         
-        const savedDateStr = await StorageService.getDataAsync<string>(
-          STORAGE_KEYS.CURRENT_DATE, ""
-        );
-        if (savedDateStr) {
-          setCurrentDate(new Date(savedDateStr));
-          setSelectedMonth(new Date(savedDateStr));
+        // まずローカルストレージから取得
+        try {
+          const localCurrentView = localStorage.getItem(STORAGE_KEYS.CURRENT_VIEW);
+          if (localCurrentView) {
+            currentView = JSON.parse(localCurrentView) as View;
+          }
+          
+          const localSavedDateStr = localStorage.getItem(STORAGE_KEYS.CURRENT_DATE);
+          if (localSavedDateStr) {
+            savedDate = new Date(JSON.parse(localSavedDateStr));
+          }
+          
+          const localSelectedEmp = localStorage.getItem(STORAGE_KEYS.SELECTED_EMPLOYEE);
+          if (localSelectedEmp) {
+            selectedEmp = JSON.parse(localSelectedEmp);
+          }
+          
+          const localAdminMode = localStorage.getItem(STORAGE_KEYS.ADMIN_MODE);
+          if (localAdminMode) {
+            adminMode = JSON.parse(localAdminMode);
+          }
+        } catch (e) {
+          console.error("ローカルストレージからの設定読み込みエラー:", e);
         }
         
-        const selectedEmp = await StorageService.getDataAsync<string>(
-          STORAGE_KEYS.SELECTED_EMPLOYEE, ""
-        );
-        setSelectedEmployee(selectedEmp);
+        // オンライン時はFirebaseからも取得を試みる
+        if (navigator.onLine) {
+          try {
+            const fbCurrentView = await StorageService.getDataAsync<View>(
+              STORAGE_KEYS.CURRENT_VIEW, currentView
+            );
+            currentView = fbCurrentView;
+            
+            const fbSavedDateStr = await StorageService.getDataAsync<string>(
+              STORAGE_KEYS.CURRENT_DATE, ""
+            );
+            if (fbSavedDateStr) {
+              savedDate = new Date(fbSavedDateStr);
+            }
+            
+            const fbSelectedEmp = await StorageService.getDataAsync<string>(
+              STORAGE_KEYS.SELECTED_EMPLOYEE, selectedEmp
+            );
+            selectedEmp = fbSelectedEmp;
+            
+            const fbAdminMode = await StorageService.getDataAsync<boolean>(
+              STORAGE_KEYS.ADMIN_MODE, adminMode
+            );
+            adminMode = fbAdminMode;
+          } catch (e) {
+            console.error("Firebaseからの設定読み込みエラー:", e);
+          }
+        }
         
-        const adminMode = await StorageService.getDataAsync<boolean>(
-          STORAGE_KEYS.ADMIN_MODE, false
-        );
+        // 設定をセット
+        setCurrentView(currentView);
+        setCurrentDate(savedDate);
+        setSelectedMonth(savedDate);
+        setSelectedEmployee(selectedEmp);
         setIsAdminMode(adminMode);
         
         // Firebase使用状況を取得
         try {
-          const firebaseStorage = await StorageService.getFirebaseStorageInfo();
-          if (firebaseStorage) {
-            setFirebaseStorageInfo(firebaseStorage);
+          if (navigator.onLine) {
+            const firebaseStorage = await StorageService.getFirebaseStorageInfo();
+            if (firebaseStorage) {
+              setFirebaseStorageInfo(firebaseStorage);
+            }
           }
         } catch (storageError) {
           console.error("Error getting Firebase storage info:", storageError);
@@ -411,6 +466,9 @@ const AttendanceApp: React.FC = () => {
     // ピンチズーム機能を許可する
     updateViewportMetaTag();
     
+    // 初期オフライン状態を設定
+    setIsOffline(!navigator.onLine);
+    
     return () => {
       window.removeEventListener('keydown', handleKeyDown as any);
       window.removeEventListener('keyup', handleKeyUp as any);
@@ -434,13 +492,11 @@ const AttendanceApp: React.FC = () => {
       setIsOffline(true);
       // オフライン時は同期フラグを下げる
       setPendingChanges(false);
+      showToast("オフライン状態になりました。ローカルにデータは保存されます", "warning");
     };
     
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    
-    // 初期状態チェック
-    setIsOffline(!navigator.onLine);
     
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -470,49 +526,79 @@ const AttendanceApp: React.FC = () => {
 
   // 状態変更時のLocalStorage保存
   useEffect(() => {
-    StorageService.saveData(STORAGE_KEYS.CURRENT_VIEW, currentView);
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_VIEW, JSON.stringify(currentView));
+      StorageService.saveData(STORAGE_KEYS.CURRENT_VIEW, currentView);
+    } catch (e) {
+      console.error("Failed to save current view:", e);
+    }
   }, [currentView]);
 
   useEffect(() => {
-    StorageService.saveData(STORAGE_KEYS.CURRENT_DATE, currentDate.toISOString());
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_DATE, JSON.stringify(currentDate.toISOString()));
+      StorageService.saveData(STORAGE_KEYS.CURRENT_DATE, currentDate.toISOString());
+    } catch (e) {
+      console.error("Failed to save current date:", e);
+    }
   }, [currentDate]);
 
   useEffect(() => {
-    StorageService.saveData(STORAGE_KEYS.SELECTED_EMPLOYEE, selectedEmployee);
-    // 従業員が選択されたら、singleEmployeeCalendar ビューに切り替える
-    if (selectedEmployee && currentView === "table") {
-      setCurrentView("singleEmployeeCalendar");
-    } else if (!selectedEmployee && currentView === "singleEmployeeCalendar") {
-      setCurrentView("table");
+    try {
+      localStorage.setItem(STORAGE_KEYS.SELECTED_EMPLOYEE, JSON.stringify(selectedEmployee));
+      StorageService.saveData(STORAGE_KEYS.SELECTED_EMPLOYEE, selectedEmployee);
+      
+      // 従業員が選択されたら、singleEmployeeCalendar ビューに切り替える
+      if (selectedEmployee && currentView === "table") {
+        setCurrentView("singleEmployeeCalendar");
+      } else if (!selectedEmployee && currentView === "singleEmployeeCalendar") {
+        setCurrentView("table");
+      }
+    } catch (e) {
+      console.error("Failed to save selected employee:", e);
     }
   }, [selectedEmployee, currentView]);
 
+  // AttendanceDataが変更されたときにローカルストレージに保存
   useEffect(() => {
     if (attendanceData.length > 0) {
-      StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, attendanceData);
+      try {
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
+        
+        // オンライン状態の場合のみFirebaseへの同期フラグを立てる
+        if (navigator.onLine) {
+          setPendingChanges(true);
+        }
+      } catch (e) {
+        console.error("Failed to save attendance data to localStorage:", e);
+      }
     }
   }, [attendanceData]);
 
+  // ScheduleDataが変更されたときにローカルストレージに保存
   useEffect(() => {
     if (scheduleData.length > 0) {
-      StorageService.saveData(STORAGE_KEYS.SCHEDULE_DATA, scheduleData);
+      try {
+        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
+        
+        // オンライン状態の場合のみFirebaseへの同期フラグを立てる
+        if (navigator.onLine) {
+          setPendingChanges(true);
+        }
+      } catch (e) {
+        console.error("Failed to save schedule data to localStorage:", e);
+      }
     }
   }, [scheduleData]);
 
   useEffect(() => {
-    StorageService.saveData(STORAGE_KEYS.ADMIN_MODE, isAdminMode);
-  }, [isAdminMode]);
-
-  // データ変更を検知してpendingChangesフラグを設定
-  useEffect(() => {
-    if (attendanceData.length > 0 || scheduleData.length > 0) {
-      // オンライン状態のみで同期フラグを立てる考慮
-      if (!isOffline) {
-        console.log("変更があり、オンライン状態のためpendingChangesをtrueに設定");
-        setPendingChanges(true);
-      }
+    try {
+      localStorage.setItem(STORAGE_KEYS.ADMIN_MODE, JSON.stringify(isAdminMode));
+      StorageService.saveData(STORAGE_KEYS.ADMIN_MODE, isAdminMode);
+    } catch (e) {
+      console.error("Failed to save admin mode:", e);
     }
-  }, [attendanceData, scheduleData, isOffline]);
+  }, [isAdminMode]);
 
   // ストレージ使用状況の確認
   useEffect(() => {
@@ -524,13 +610,15 @@ const AttendanceApp: React.FC = () => {
       }
       
       // Firebase使用状況を更新
-      StorageService.getFirebaseStorageInfo().then(info => {
-        if (info) {
-          setFirebaseStorageInfo(info);
-        }
-      }).catch(error => {
-        console.error("Error updating Firebase storage info:", error);
-      });
+      if (navigator.onLine) {
+        StorageService.getFirebaseStorageInfo().then(info => {
+          if (info) {
+            setFirebaseStorageInfo(info);
+          }
+        }).catch(error => {
+          console.error("Error updating Firebase storage info:", error);
+        });
+      }
     }
   }, [isAdminMode]);
 
@@ -615,7 +703,7 @@ const AttendanceApp: React.FC = () => {
     return score;
   };
 
-  // 変更データの同期
+  // 変更データの同期 - 改善版
   const syncChanges = async () => {
     try {
       console.log("同期処理を開始しました");
@@ -624,33 +712,46 @@ const AttendanceApp: React.FC = () => {
       captureTableScroll();
       
       // オフライン状態チェックを追加
-      if (isOffline) {
+      if (isOffline || !navigator.onLine) {
         console.log("オフライン状態のため同期できません");
-        showToast("オフライン状態のため同期できません", "warning");
-        return;
+        showToast("オフライン状態のため同期できません。データはローカルに保存されています", "warning");
+        return false;
       }
       
-      // ローカルストレージに先に保存
+      // ローカルストレージに先に保存（常にローカルストレージは最新に）
       try {
         localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
         localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
       } catch (e) {
         console.error('Failed to save to localStorage:', e);
+        showToast("ローカルストレージへの保存に失敗しました", "error");
+        return false;
       }
       
-      // 勤怠データの同期
-      await StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, attendanceData);
-      // 予定データの同期
-      await StorageService.saveData(STORAGE_KEYS.SCHEDULE_DATA, scheduleData);
+      // Firebase/バックエンドへの同期
+      try {
+        // 勤怠データの同期
+        await StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, attendanceData);
+        // 予定データの同期
+        await StorageService.saveData(STORAGE_KEYS.SCHEDULE_DATA, scheduleData);
+      } catch (e) {
+        console.error('Failed to sync with Firebase:', e);
+        showToast("クラウドへの同期に失敗しましたが、データはローカルに保存されています", "warning");
+        return false;
+      }
       
       setPendingChanges(false);
       showToast("データを同期しました", "success");
       
       // Firebase使用状況を更新
       if (isAdminMode) {
-        const info = await StorageService.getFirebaseStorageInfo();
-        if (info) {
-          setFirebaseStorageInfo(info);
+        try {
+          const info = await StorageService.getFirebaseStorageInfo();
+          if (info) {
+            setFirebaseStorageInfo(info);
+          }
+        } catch (e) {
+          console.error('Failed to update Firebase storage info:', e);
         }
       }
       
@@ -673,9 +774,11 @@ const AttendanceApp: React.FC = () => {
       }
       
       console.log("同期処理が完了しました");
+      return true;
     } catch (error) {
       console.error("Error syncing data:", error);
       showToast("データの同期に失敗しました", "error");
+      return false;
     }
   };
 
@@ -955,6 +1058,13 @@ const updateAttendanceRecord = (employeeId: number, date: Date, workType: string
     newAttendanceData.push(newRecord);
   }
   
+  // ローカルストレージに直接保存も追加
+  try {
+    localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
+  } catch (e) {
+    console.error('Failed to save attendance data to localStorage:', e);
+  }
+  
   setAttendanceData(newAttendanceData);
   return newAttendanceData;
 };
@@ -1029,23 +1139,37 @@ const exportToExcel = (month: Date = currentDate) => {
 const resetAllData = () => {
   showConfirm("全てのデータをリセットしますか？この操作は元に戻せません。", async () => {
     try {
+      // まずローカルストレージをクリアして確実にデータを削除
+      try {
+        localStorage.removeItem(STORAGE_KEYS.ATTENDANCE_DATA);
+        localStorage.removeItem(STORAGE_KEYS.SCHEDULE_DATA);
+      } catch (e) {
+        console.error('Failed to clear localStorage:', e);
+      }
+      
+      // 状態を空に設定
+      setAttendanceData([]);
+      setScheduleData([]);
+      
+      // Firebase内のデータもリセット
       const success = await StorageService.resetAllData();
       if (success) {
-        setAttendanceData([]);
-        setScheduleData([]);
-        
-        // データ更新後に自動同期処理を追加
-        syncChanges();
+        // オンラインなら同期処理を実行
+        if (navigator.onLine) {
+          await syncChanges();
+        }
         
         showSuccess("全てのデータをリセットしました");
         
         // Firebase使用状況を更新
-        const info = await StorageService.getFirebaseStorageInfo();
-        if (info) {
-          setFirebaseStorageInfo(info);
+        if (navigator.onLine) {
+          const info = await StorageService.getFirebaseStorageInfo();
+          if (info) {
+            setFirebaseStorageInfo(info);
+          }
         }
       } else {
-        showToast("データのリセットに失敗しました", "error");
+        showToast("クラウド上のデータのリセットに失敗しましたが、ローカルデータはクリアされました", "warning");
       }
     } catch (error) {
       console.error("Error resetting data:", error);
@@ -1060,34 +1184,42 @@ const resetMonthData = (month: Date = currentDate) => {
   
   showConfirm(`${format(month, "yyyy年M月")}のデータのみをリセットしますか？この操作は元に戻せません。`, async () => {
     try {
-      const success = await StorageService.deleteMonthData(targetMonth);
+      // まずローカルからデータを削除
+      const newAttendanceData = attendanceData.filter(record => !record.date.startsWith(targetMonth));
+      const newScheduleData = scheduleData.filter(schedule => !schedule.date.startsWith(targetMonth));
       
-      if (success) {
-        // Firebaseから最新データを再取得
-        const newAttendanceData = await StorageService.getDataAsync<AttendanceRecord[]>(
-          STORAGE_KEYS.ATTENDANCE_DATA, []
-        );
-        setAttendanceData(newAttendanceData);
-        
-        const newScheduleData = await StorageService.getDataAsync<ScheduleItem[]>(
-          STORAGE_KEYS.SCHEDULE_DATA, []
-        );
-        setScheduleData(newScheduleData);
-        
-        // データ更新後に自動同期処理を追加
-        syncChanges();
-        
-        // Firebase使用状況を更新
-        const info = await StorageService.getFirebaseStorageInfo();
-        if (info) {
-          setFirebaseStorageInfo(info);
-        }
-        
-        showSuccess(`${format(month, "yyyy年M月")}のデータをリセットしました`);
-        setShowMonthSelectionModal(false);
-      } else {
-        showToast("データのリセットに失敗しました", "error");
+      // ローカルストレージに保存
+      try {
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
+        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
+      } catch (e) {
+        console.error('Failed to save filtered data to localStorage:', e);
       }
+      
+      // 状態を更新
+      setAttendanceData(newAttendanceData);
+      setScheduleData(newScheduleData);
+      
+      // Firebase内のデータもリセット（オンラインの場合のみ）
+      if (navigator.onLine) {
+        const success = await StorageService.deleteMonthData(targetMonth);
+        
+        if (success) {
+          // 同期処理を実行
+          await syncChanges();
+          
+          // Firebase使用状況を更新
+          const info = await StorageService.getFirebaseStorageInfo();
+          if (info) {
+            setFirebaseStorageInfo(info);
+          }
+        } else {
+          showToast("クラウド上のデータの削除に失敗しましたが、ローカルデータは更新されました", "warning");
+        }
+      }
+      
+      showSuccess(`${format(month, "yyyy年M月")}のデータをリセットしました`);
+      setShowMonthSelectionModal(false);
     } catch (error) {
       console.error("Error resetting month data:", error);
       showToast("データのリセットに失敗しました", "error");
@@ -1099,10 +1231,20 @@ const resetMonthData = (month: Date = currentDate) => {
 const deleteSchedule = (scheduleId: string) => {
   showConfirm("この予定を削除しますか？", () => {
     const newScheduleData = scheduleData.filter(item => item.id !== scheduleId);
+    
+    // ローカルストレージに直接保存
+    try {
+      localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
+    } catch (e) {
+      console.error('Failed to save schedule data to localStorage:', e);
+    }
+    
     setScheduleData(newScheduleData);
     
-    // データ更新後に自動同期処理を追加
-    syncChanges();
+    // オンラインなら同期処理を実行
+    if (navigator.onLine) {
+      syncChanges();
+    }
     
     setShowScheduleModal(false);
     setSelectedScheduleItem(null);
@@ -1918,7 +2060,7 @@ const CalendarView = React.memo(() => {
       }
     }, [showWorkTypeModal]);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
       // 一括編集モードの場合
       if (isBulkEditMode && isAdminMode && selectedCells.length > 0) {
         if (!selectedWorkType) return;
@@ -1948,13 +2090,23 @@ const CalendarView = React.memo(() => {
           newAttendanceData.push(newRecord);
         });
         
+        // ローカルストレージに直接保存
+        try {
+          localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
+        } catch (e) {
+          console.error('Failed to save attendance data to localStorage:', e);
+        }
+        
+        // 状態を更新
         setAttendanceData(newAttendanceData);
         setShowWorkTypeModal(false);
         setSelectedCells([]);
         setSelectedWorkType("");
         
-        // データ更新後に自動同期処理を追加
-        syncChanges();
+        // オンラインなら同期処理を実行
+        if (navigator.onLine) {
+          syncChanges();
+        }
         
         showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
         return;
@@ -1981,13 +2133,24 @@ const CalendarView = React.memo(() => {
         )?.name,
       };
 
+      // ローカルストレージに直接保存
+      try {
+        const updatedData = [...newAttendanceData, newRecord];
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(updatedData));
+      } catch (e) {
+        console.error('Failed to save attendance data to localStorage:', e);
+      }
+      
+      // 状態を更新
       setAttendanceData([...newAttendanceData, newRecord]);
       setShowWorkTypeModal(false);
       setSelectedCell(null);
       setSelectedWorkType("");
       
-      // データ更新後に自動同期処理を追加
-      syncChanges();
+      // オンラインなら同期処理を実行
+      if (navigator.onLine) {
+        syncChanges();
+      }
       
       showToast(`${employees.find(emp => emp.id === selectedCell.employeeId)?.name}さんの勤務区分を登録しました`, "success");
     };
@@ -2002,12 +2165,21 @@ const CalendarView = React.memo(() => {
             );
           });
           
+          // ローカルストレージに直接保存
+          try {
+            localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
+          } catch (e) {
+            console.error('Failed to save attendance data to localStorage:', e);
+          }
+          
           setAttendanceData(newAttendanceData);
           setShowWorkTypeModal(false);
           setSelectedCells([]);
           
-          // データ更新後に自動同期処理を追加
-          syncChanges();
+          // オンラインなら同期処理を実行
+          if (navigator.onLine) {
+            syncChanges();
+          }
           
           showToast(`${selectedCells.length}件の勤務区分を削除しました`, "info");
         });
@@ -2021,12 +2193,21 @@ const CalendarView = React.memo(() => {
         record => !(record.employeeId === selectedCell.employeeId.toString() && record.date === dateStr)
       );
       
+      // ローカルストレージに直接保存
+      try {
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
+      } catch (e) {
+        console.error('Failed to save attendance data to localStorage:', e);
+      }
+      
       setAttendanceData(newAttendanceData);
       setShowWorkTypeModal(false);
       setSelectedCell(null);
       
-      // データ更新後に自動同期処理を追加
-      syncChanges();
+      // オンラインなら同期処理を実行
+      if (navigator.onLine) {
+        syncChanges();
+      }
       
       showToast("勤務区分を削除しました", "info");
     };
@@ -2352,9 +2533,6 @@ const CalendarView = React.memo(() => {
             : item
         );
         
-        // 状態とローカルストレージ両方を更新
-        setScheduleData(newScheduleData);
-        
         // ローカルストレージに直接保存（同期前の保険として）
         try {
           localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
@@ -2362,11 +2540,16 @@ const CalendarView = React.memo(() => {
           console.error('Failed to save schedule to localStorage:', e);
         }
         
-        // データ更新後に自動同期処理を追加
-        try {
-          await syncChanges();
-        } catch (e) {
-          console.error("予定更新の同期中にエラーが発生:", e);
+        // 状態を更新
+        setScheduleData(newScheduleData);
+        
+        // オンラインなら同期処理を実行
+        if (navigator.onLine) {
+          try {
+            await syncChanges();
+          } catch (e) {
+            console.error("予定更新の同期中にエラーが発生:", e);
+          }
         }
         
         showToast("予定を更新しました", "success");
@@ -2384,9 +2567,6 @@ const CalendarView = React.memo(() => {
         
         newScheduleData = [...scheduleData, newScheduleItem];
         
-        // 状態とローカルストレージ両方を更新
-        setScheduleData(newScheduleData);
-        
         // ローカルストレージに直接保存（同期前の保険として）
         try {
           localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
@@ -2394,11 +2574,16 @@ const CalendarView = React.memo(() => {
           console.error('Failed to save schedule to localStorage:', e);
         }
         
-        // データ更新後に自動同期処理を追加
-        try {
-          await syncChanges();
-        } catch (e) {
-          console.error("予定追加の同期中にエラーが発生:", e);
+        // 状態を更新
+        setScheduleData(newScheduleData);
+        
+        // オンラインなら同期処理を実行
+        if (navigator.onLine) {
+          try {
+            await syncChanges();
+          } catch (e) {
+            console.error("予定追加の同期中にエラーが発生:", e);
+          }
         }
         
         showToast("新しい予定を追加しました", "success");

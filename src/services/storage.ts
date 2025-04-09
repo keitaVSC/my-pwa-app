@@ -17,16 +17,17 @@ const USE_FIREBASE = true; // Firebaseを使用するかどうか
 // ストレージサービス
 export const StorageService = {
   // データ保存
-  async saveData<T>(key: string, data: T): Promise<void> {
+  async saveData<T>(key: string, data: T): Promise<boolean> {
     // ローカルストレージに保存
     try {
       localStorage.setItem(key, JSON.stringify(data));
     } catch (error) {
       console.error(`Error saving to localStorage: ${key}`, error);
+      return false;
     }
     
     // Firebaseに保存（特定のデータのみ）
-    if (USE_FIREBASE) {
+    if (USE_FIREBASE && navigator.onLine) {
       try {
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
@@ -42,10 +43,14 @@ export const StorageService = {
             await FirebaseService.saveSettings(key, data);
             break;
         }
+        return true;
       } catch (error) {
         console.error(`Error saving to Firebase: ${key}`, error);
+        return false;
       }
     }
+    
+    return true; // ローカルストレージへの保存が成功した場合
   },
   
   // データ取得
@@ -61,13 +66,33 @@ export const StorageService = {
   
   // データを非同期で取得（Firebase対応）
   async getDataAsync<T>(key: string, defaultValue: T): Promise<T> {
-    if (USE_FIREBASE) {
+    if (USE_FIREBASE && navigator.onLine) {
       try {
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
-            return await FirebaseService.getAttendanceData() as any;
+            const fbAttendance = await FirebaseService.getAttendanceData();
+            if (fbAttendance && fbAttendance.length > 0) {
+              // 最新データをローカルストレージにも保存
+              try {
+                localStorage.setItem(key, JSON.stringify(fbAttendance));
+              } catch (error) {
+                console.error(`Error saving Firebase data to localStorage: ${key}`, error);
+              }
+              return fbAttendance as any;
+            }
+            break;
           case STORAGE_KEYS.SCHEDULE_DATA:
-            return await FirebaseService.getScheduleData() as any;
+            const fbSchedule = await FirebaseService.getScheduleData();
+            if (fbSchedule && fbSchedule.length > 0) {
+              // 最新データをローカルストレージにも保存
+              try {
+                localStorage.setItem(key, JSON.stringify(fbSchedule));
+              } catch (error) {
+                console.error(`Error saving Firebase data to localStorage: ${key}`, error);
+              }
+              return fbSchedule as any;
+            }
+            break;
           case STORAGE_KEYS.ADMIN_MODE:
           case STORAGE_KEYS.CURRENT_VIEW:
           case STORAGE_KEYS.CURRENT_DATE:
@@ -79,27 +104,41 @@ export const StorageService = {
       } catch (error) {
         console.error(`Error loading from Firebase: ${key}`, error);
         // Firebaseが失敗した場合、ローカルストレージから取得
-        return this.getData(key, defaultValue);
+        console.log(`Fallback to localStorage for: ${key}`);
       }
-    } else {
-      return this.getData(key, defaultValue);
     }
+    
+    // オフラインまたはFirebaseの取得に失敗した場合は、ローカルストレージから取得
+    console.log(`Getting data from localStorage for: ${key}`);
+    return this.getData(key, defaultValue);
   },
   
   // 特定の月のデータを削除
   async deleteMonthData(yearMonth: string): Promise<boolean> {
     try {
-      if (USE_FIREBASE) {
+      // 現在のデータを取得
+      let attendanceData = this.getData<any[]>(STORAGE_KEYS.ATTENDANCE_DATA, []);
+      let scheduleData = this.getData<any[]>(STORAGE_KEYS.SCHEDULE_DATA, []);
+      
+      // 対象月以外のデータをフィルタリング
+      attendanceData = attendanceData.filter(item => !item.date.startsWith(yearMonth));
+      scheduleData = scheduleData.filter(item => !item.date.startsWith(yearMonth));
+      
+      // ローカルストレージに保存
+      try {
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
+        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
+      } catch (error) {
+        console.error("Error saving filtered data to localStorage", error);
+      }
+      
+      // Firebaseにも反映（オンラインの場合のみ）
+      if (USE_FIREBASE && navigator.onLine) {
         await Promise.all([
           FirebaseService.deleteMonthAttendanceData(yearMonth),
           FirebaseService.deleteMonthScheduleData(yearMonth)
         ]);
       }
-      
-      // ローカルストレージからも削除（全削除に簡略化）
-      // 本来は月データだけをフィルタリングすべきだが、同期を考えると全削除が安全
-      this.saveData(STORAGE_KEYS.ATTENDANCE_DATA, []);
-      this.saveData(STORAGE_KEYS.SCHEDULE_DATA, []);
       
       return true;
     } catch (error) {
@@ -111,12 +150,18 @@ export const StorageService = {
   // 全データをリセット
   async resetAllData(): Promise<boolean> {
     try {
-      if (USE_FIREBASE) {
-        await FirebaseService.deleteAllData();
+      // ローカルストレージをクリア
+      try {
+        localStorage.removeItem(STORAGE_KEYS.ATTENDANCE_DATA);
+        localStorage.removeItem(STORAGE_KEYS.SCHEDULE_DATA);
+      } catch (error) {
+        console.error("Error clearing localStorage", error);
       }
       
-      localStorage.removeItem(STORAGE_KEYS.ATTENDANCE_DATA);
-      localStorage.removeItem(STORAGE_KEYS.SCHEDULE_DATA);
+      // Firebaseもクリア（オンラインの場合のみ）
+      if (USE_FIREBASE && navigator.onLine) {
+        await FirebaseService.deleteAllData();
+      }
       
       return true;
     } catch (error) {
@@ -127,7 +172,7 @@ export const StorageService = {
   
   // Firebase Storage情報を取得する関数
   async getFirebaseStorageInfo(): Promise<{ usageGiB: string; maxGiB: string; percentage: string } | null> {
-    if (!USE_FIREBASE) return null;
+    if (!USE_FIREBASE || !navigator.onLine) return null;
     
     try {
       // Firebaseの使用状況を取得
