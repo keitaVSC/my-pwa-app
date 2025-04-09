@@ -558,7 +558,14 @@ const AttendanceApp: React.FC = () => {
     attendanceData.forEach(record => {
       if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
         if (record.workType === '休') {
-          score += 1.0;
+          // 日付文字列から Date オブジェクトを作成
+          const recordDate = new Date(record.date);
+          // 土曜日の場合は0.5点、それ以外の日は1.0点
+          if (isSaturday(recordDate)) {
+            score += 0.5;
+          } else {
+            score += 1.0;
+          }
         } else if (record.workType === 'A' || record.workType === 'P') {
           score += 0.5;
         }
