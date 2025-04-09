@@ -549,15 +549,39 @@ const AttendanceApp: React.FC = () => {
     }
   };
 
+  // 特定従業員の勤務区分スコアを計算する関数
+  const calculateEmployeeWorkTypeScore = (employeeId: number) => {
+    let score = 0;
+    
+    const yearMonth = format(currentDate, "yyyy-MM");
+    
+    attendanceData.forEach(record => {
+      if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
+        if (record.workType === '休') {
+          score += 1.0;
+        } else if (record.workType === 'A' || record.workType === 'P') {
+          score += 0.5;
+        }
+      }
+    });
+    
+    return score;
+  };
+
   // 変更データの同期
   const syncChanges = async () => {
-    if (!pendingChanges) return;
-    
     try {
       console.log("同期処理を開始しました");
       
       // スクロール位置の保存
       captureTableScroll();
+      
+      // オフライン状態チェックを追加
+      if (isOffline) {
+        console.log("オフライン状態のため同期できません");
+        showToast("オフライン状態のため同期できません", "warning");
+        return;
+      }
       
       // 勤怠データの同期
       await StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, attendanceData);
@@ -954,6 +978,10 @@ const resetAllData = () => {
       if (success) {
         setAttendanceData([]);
         setScheduleData([]);
+        
+        // データ更新後に自動同期処理を追加
+        syncChanges();
+        
         showSuccess("全てのデータをリセットしました");
         
         // Firebase使用状況を更新
@@ -991,6 +1019,9 @@ const resetMonthData = (month: Date = currentDate) => {
         );
         setScheduleData(newScheduleData);
         
+        // データ更新後に自動同期処理を追加
+        syncChanges();
+        
         // Firebase使用状況を更新
         const info = await StorageService.getFirebaseStorageInfo();
         if (info) {
@@ -1014,6 +1045,10 @@ const deleteSchedule = (scheduleId: string) => {
   showConfirm("この予定を削除しますか？", () => {
     const newScheduleData = scheduleData.filter(item => item.id !== scheduleId);
     setScheduleData(newScheduleData);
+    
+    // データ更新後に自動同期処理を追加
+    syncChanges();
+    
     setShowScheduleModal(false);
     setSelectedScheduleItem(null);
     showToast("予定を削除しました", "info");
@@ -1337,7 +1372,12 @@ const TableView = React.memo(() => {
                         }}
                       >
                         <div className="flex justify-between items-center">
-                          <span>{employee.name}</span>
+                          <div className="flex items-center">
+                            <span>{employee.name}</span>
+                            <span className="ml-2 text-sm font-semibold text-blue-600">
+                              {calculateEmployeeWorkTypeScore(employee.id).toFixed(1)}
+                            </span>
+                          </div>
                           {isBulkEditMode && isAdminMode && selectedCount > 0 && (
                             <span className="text-xs bg-blue-100 px-1 rounded">
                               {selectedCount}
@@ -1858,6 +1898,9 @@ const CalendarView = React.memo(() => {
         setSelectedCells([]);
         setSelectedWorkType("");
         
+        // データ更新後に自動同期処理を追加
+        syncChanges();
+        
         showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
         return;
       }
@@ -1888,6 +1931,9 @@ const CalendarView = React.memo(() => {
       setSelectedCell(null);
       setSelectedWorkType("");
       
+      // データ更新後に自動同期処理を追加
+      syncChanges();
+      
       showToast(`${employees.find(emp => emp.id === selectedCell.employeeId)?.name}さんの勤務区分を登録しました`, "success");
     };
 
@@ -1905,6 +1951,9 @@ const CalendarView = React.memo(() => {
           setShowWorkTypeModal(false);
           setSelectedCells([]);
           
+          // データ更新後に自動同期処理を追加
+          syncChanges();
+          
           showToast(`${selectedCells.length}件の勤務区分を削除しました`, "info");
         });
         return;
@@ -1920,6 +1969,9 @@ const CalendarView = React.memo(() => {
       setAttendanceData(newAttendanceData);
       setShowWorkTypeModal(false);
       setSelectedCell(null);
+      
+      // データ更新後に自動同期処理を追加
+      syncChanges();
       
       showToast("勤務区分を削除しました", "info");
     };
@@ -2243,6 +2295,10 @@ const CalendarView = React.memo(() => {
             : item
         );
         setScheduleData(newScheduleData);
+        
+        // データ更新後に自動同期処理を追加
+        syncChanges();
+        
         showToast("予定を更新しました", "success");
       } else {
         // 新規予定を追加
@@ -2256,6 +2312,10 @@ const CalendarView = React.memo(() => {
           color
         };
         setScheduleData([...scheduleData, newScheduleItem]);
+        
+        // データ更新後に自動同期処理を追加
+        syncChanges();
+        
         showToast("新しい予定を追加しました", "success");
       }
       
