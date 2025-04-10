@@ -14,6 +14,7 @@ import './styles/sync-button.css'; // SyncButtonのスタイルをインポー�
 import './styles/offline-indicator.css'; // OfflineIndicatorのスタイルをインポート
 import { StorageService, STORAGE_KEYS } from "./services/storage";
 import './index.css'; // メインのスタイルをインポート
+import { IndexedDBService } from './services/indexedDBService';
 
 // Japanese-holidaysの型定義
 declare module "japanese-holidays" {
@@ -74,12 +75,7 @@ interface WorkType {
 }
 
 // 勤務記録
-interface AttendanceRecord {
-  employeeId: string;
-  date: string;
-  workType: string;
-  employeeName?: string;
-}
+import { AttendanceRecord } from "./types";
 
 // 予定
 interface ScheduleItem {
@@ -289,159 +285,91 @@ const AttendanceApp: React.FC = () => {
   // 副作用（useEffect）
   //---------------------------------------------------------------
   // データの初期化を非同期で行う
-  useEffect(() => {
-    const initializeData = async () => {
-      setIsLoading(true);
-      try {
-        let attendance: AttendanceRecord[] = [];
-        let schedule: ScheduleItem[] = [];
-        
-        // まずはローカルストレージから読み込む (バックアップとして)
-        try {
-          const localAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE_DATA);
-          if (localAttendance) {
-            attendance = JSON.parse(localAttendance);
-            console.log("ローカルストレージから勤怠データを読み込みました:", attendance.length);
-          }
-          
-          const localSchedule = localStorage.getItem(STORAGE_KEYS.SCHEDULE_DATA);
-          if (localSchedule) {
-            schedule = JSON.parse(localSchedule);
-            console.log("ローカルストレージから予定データを読み込みました:", schedule.length);
-          }
-        } catch (localError) {
-          console.error("ローカルストレージからの読み込みエラー:", localError);
-        }
-        
-        // オンライン状態の場合のみFirebaseからデータを取得を試みる
-        if (navigator.onLine) {
-          try {
-            // 非同期でFirebaseからデータを取得
-            const fbAttendance = await StorageService.getDataAsync<AttendanceRecord[]>(
-              STORAGE_KEYS.ATTENDANCE_DATA, []
-            );
-            
-            const fbSchedule = await StorageService.getDataAsync<ScheduleItem[]>(
-              STORAGE_KEYS.SCHEDULE_DATA, []
-            );
-            
-            // Firebaseのデータがある場合のみそれを使用
-            if (fbAttendance && fbAttendance.length > 0) {
-              attendance = fbAttendance;
-              console.log("Firebaseから勤怠データを読み込みました:", attendance.length);
-              
-              // ローカルストレージも最新のデータで更新
-              localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(fbAttendance));
-            }
-            
-            if (fbSchedule && fbSchedule.length > 0) {
-              schedule = fbSchedule;
-              console.log("Firebaseから予定データを読み込みました:", schedule.length);
-              
-              // ローカルストレージも最新のデータで更新
-              localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(fbSchedule));
-            }
-          } catch (fbError) {
-            console.error("Firebaseからの読み込みエラー:", fbError);
-            showToast("クラウドからのデータ読み込みに失敗しました。ローカルデータを使用します", "warning");
-          }
-        } else {
-          console.log("オフライン状態のため、ローカルデータのみを使用します");
-          showToast("オフライン状態のため、ローカルデータのみを使用します", "info");
-        }
-        
-        // 読み込んだデータをセット
-        setAttendanceData(attendance);
-        setScheduleData(schedule);
-        
-        // その他の設定も非同期で取得
-        let currentView: View = "calendar";
-        let savedDate = new Date();
-        let selectedEmp = "";
-        let adminMode = false;
-        
-        // まずローカルストレージから取得
-        try {
-          const localCurrentView = localStorage.getItem(STORAGE_KEYS.CURRENT_VIEW);
-          if (localCurrentView) {
-            currentView = JSON.parse(localCurrentView) as View;
-          }
-          
-          const localSavedDateStr = localStorage.getItem(STORAGE_KEYS.CURRENT_DATE);
-          if (localSavedDateStr) {
-            savedDate = new Date(JSON.parse(localSavedDateStr));
-          }
-          
-          const localSelectedEmp = localStorage.getItem(STORAGE_KEYS.SELECTED_EMPLOYEE);
-          if (localSelectedEmp) {
-            selectedEmp = JSON.parse(localSelectedEmp);
-          }
-          
-          const localAdminMode = localStorage.getItem(STORAGE_KEYS.ADMIN_MODE);
-          if (localAdminMode) {
-            adminMode = JSON.parse(localAdminMode);
-          }
-        } catch (e) {
-          console.error("ローカルストレージからの設定読み込みエラー:", e);
-        }
-        
-        // オンライン時はFirebaseからも取得を試みる
-        if (navigator.onLine) {
-          try {
-            const fbCurrentView = await StorageService.getDataAsync<View>(
-              STORAGE_KEYS.CURRENT_VIEW, currentView
-            );
-            currentView = fbCurrentView;
-            
-            const fbSavedDateStr = await StorageService.getDataAsync<string>(
-              STORAGE_KEYS.CURRENT_DATE, ""
-            );
-            if (fbSavedDateStr) {
-              savedDate = new Date(fbSavedDateStr);
-            }
-            
-            const fbSelectedEmp = await StorageService.getDataAsync<string>(
-              STORAGE_KEYS.SELECTED_EMPLOYEE, selectedEmp
-            );
-            selectedEmp = fbSelectedEmp;
-            
-            const fbAdminMode = await StorageService.getDataAsync<boolean>(
-              STORAGE_KEYS.ADMIN_MODE, adminMode
-            );
-            adminMode = fbAdminMode;
-          } catch (e) {
-            console.error("Firebaseからの設定読み込みエラー:", e);
-          }
-        }
-        
-        // 設定をセット
-        setCurrentView(currentView);
-        setCurrentDate(savedDate);
-        setSelectedMonth(savedDate);
-        setSelectedEmployee(selectedEmp);
-        setIsAdminMode(adminMode);
-        
-        // Firebase使用状況を取得
-        try {
-          if (navigator.onLine) {
-            const firebaseStorage = await StorageService.getFirebaseStorageInfo();
-            if (firebaseStorage) {
-              setFirebaseStorageInfo(firebaseStorage);
-            }
-          }
-        } catch (storageError) {
-          console.error("Error getting Firebase storage info:", storageError);
-        }
-      } catch (error) {
-        console.error("Error initializing data:", error);
-        showToast("データの読み込みに失敗しました", "error");
-      } finally {
-        setIsLoading(false);
-      }
-    };
+// 2. 初期ロード時のデータ読み込み処理を強化
+useEffect(() => {
+  const initializeData = async () => {
+    setIsLoading(true);
     
-    initializeData();
-  }, []);
+    try {
+      // オフライン状態を先に確認
+      const isNetworkOffline = !navigator.onLine;
+      setIsOffline(isNetworkOffline);
+      
+      // ストレージの健全性チェックを行う
+      const storageHealth = await StorageService.checkStorageHealth();
+      console.log('ストレージ健全性:', storageHealth);
+      
+      // データ読み込み
+      const attendance = await StorageService.getDataAsync<AttendanceRecord[]>(
+        STORAGE_KEYS.ATTENDANCE_DATA, []
+      );
+      const schedule = await StorageService.getDataAsync<ScheduleItem[]>(
+        STORAGE_KEYS.SCHEDULE_DATA, []
+      );
+      
+      // 状態を更新
+      setAttendanceData(attendance);
+      setScheduleData(schedule);
+      
+      // 設定も同様に読み込み
+      const currentView = await StorageService.getDataAsync<View>(
+        STORAGE_KEYS.CURRENT_VIEW, "calendar"
+      );
+      const savedDateStr = await StorageService.getDataAsync<string>(
+        STORAGE_KEYS.CURRENT_DATE, ""
+      );
+      const selectedEmp = await StorageService.getDataAsync<string>(
+        STORAGE_KEYS.SELECTED_EMPLOYEE, ""
+      );
+      const adminMode = await StorageService.getDataAsync<boolean>(
+        STORAGE_KEYS.ADMIN_MODE, false
+      );
+      
+      // 日付データの処理
+      const currentDateTime = savedDateStr ? new Date(savedDateStr) : new Date();
+      
+      // 各設定を適用
+      setCurrentView(currentView);
+      setCurrentDate(currentDateTime);
+      setSelectedMonth(currentDateTime);
+      setSelectedEmployee(selectedEmp);
+      setIsAdminMode(adminMode);
+      
+      // ストレージ使用状況確認
+      if (adminMode) {
+        const warning = StorageService.checkStorageWarning(70);
+        if (warning) {
+          showToast(warning, "warning");
+        }
+      }
+      
+      // Firebase情報は管理者モードかつオンライン時のみ
+      if (adminMode && !isNetworkOffline) {
+        const firebaseInfo = await StorageService.getFirebaseStorageInfo();
+        if (firebaseInfo) {
+          setFirebaseStorageInfo(firebaseInfo);
+        }
+      }
+      
+      // オフライン時の通知
+      if (isNetworkOffline) {
+        showToast("オフライン状態のため、ローカルデータを使用しています", "info");
+      }
+      
+      // 未同期データがあるかチェック
+      if (!isNetworkOffline && (attendance.length > 0 || schedule.length > 0)) {
+        setPendingChanges(true);
+      }
+    } catch (error) {
+      console.error("データ初期化エラー:", error);
+      showToast("データの読み込みに問題が発生しました。ページを再読み込みしてください", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  initializeData();
+}, []);
 
   // コンポーネントマウント時の処理
   useEffect(() => {
@@ -631,6 +559,86 @@ const AttendanceApp: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toast]);
+
+  // 修正: AttendanceAppコンポーネント内に追加するuseEffect
+// この部分をAttendanceAppコンポーネント内のuseEffectブロックの一つとして追加してください
+useEffect(() => {
+  // デバッグツールの初期化（開発環境のみ）
+  if (process.env.NODE_ENV === 'development') {
+    (window as any).appDebugTools = {
+      // ストレージの状態を確認
+      checkStorage: async () => {
+        console.group('ストレージ診断');
+        
+        // ローカルストレージ
+        try {
+          const lsAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE_DATA);
+          const lsSchedule = localStorage.getItem(STORAGE_KEYS.SCHEDULE_DATA);
+          console.log('LocalStorage - 勤怠データ:', lsAttendance ? JSON.parse(lsAttendance).length : 0, '件');
+          console.log('LocalStorage - 予定データ:', lsSchedule ? JSON.parse(lsSchedule).length : 0, '件');
+        } catch (e) {
+          console.error('LocalStorage診断エラー:', e);
+        }
+        
+        // IndexedDB
+        try {
+          const idbAttendance = await IndexedDBService.getAttendanceData();
+          const idbSchedule = await IndexedDBService.getScheduleData();
+          console.log('IndexedDB - 勤怠データ:', idbAttendance.length, '件');
+          console.log('IndexedDB - 予定データ:', idbSchedule.length, '件');
+        } catch (e) {
+          console.error('IndexedDB診断エラー:', e);
+        }
+        
+        // Reactステート
+        console.log('React状態 - 勤怠データ:', attendanceData.length, '件');
+        console.log('React状態 - 予定データ:', scheduleData.length, '件');
+        
+        console.groupEnd();
+      },
+      
+      // データをリセット
+      resetData: async () => {
+        if (confirm('本当にすべてのデータをリセットしますか？')) {
+          try {
+            await StorageService.resetAllData();
+            setAttendanceData([]);
+            setScheduleData([]);
+            console.log('✓ データをリセットしました');
+            return true;
+          } catch (e) {
+            console.error('データリセットエラー:', e);
+            return false;
+          }
+        }
+      },
+      
+      // ストレージ健全性チェック
+      checkStorageHealth: async () => {
+        const health = await StorageService.checkStorageHealth();
+        console.log('ストレージ健全性:', health);
+        return health;
+      },
+      
+      // 状態変数確認
+      getState: () => {
+        return {
+          currentView,
+          currentDate: currentDate.toISOString(),
+          selectedEmployee,
+          isAdminMode,
+          isOffline,
+          pendingChanges,
+          attendanceCount: attendanceData.length,
+          scheduleCount: scheduleData.length
+        };
+      }
+    };
+    
+    console.log('デバッグツールが利用可能: window.appDebugTools');
+  }
+}, []); // 空の依存配列でコンポーネントのマウント時に1度だけ実行
+
   //---------------------------------------------------------------
   // ヘルパー関数
   //---------------------------------------------------------------
@@ -711,48 +719,53 @@ const AttendanceApp: React.FC = () => {
       // スクロール位置の保存
       captureTableScroll();
       
-      // オフライン状態チェックを追加
+      // オフライン状態チェック
       if (isOffline || !navigator.onLine) {
         console.log("オフライン状態のため同期できません");
         showToast("オフライン状態のため同期できません。データはローカルに保存されています", "warning");
         return false;
       }
       
-      // ローカルストレージに先に保存（常にローカルストレージは最新に）
-      try {
-        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
-        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
-      } catch (e) {
-        console.error('Failed to save to localStorage:', e);
-        showToast("ローカルストレージへの保存に失敗しました", "error");
-        return false;
-      }
-      
-      // Firebase/バックエンドへの同期
+      // このタイミングで Firebase にデータを送信
+      let syncSuccess = false;
       try {
         // 勤怠データの同期
-        await StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, attendanceData);
+        const attendanceSuccess = await StorageService.saveData(
+          STORAGE_KEYS.ATTENDANCE_DATA, 
+          attendanceData
+        );
+        
         // 予定データの同期
-        await StorageService.saveData(STORAGE_KEYS.SCHEDULE_DATA, scheduleData);
+        const scheduleSuccess = await StorageService.saveData(
+          STORAGE_KEYS.SCHEDULE_DATA, 
+          scheduleData
+        );
+        
+        syncSuccess = attendanceSuccess && scheduleSuccess;
       } catch (e) {
-        console.error('Failed to sync with Firebase:', e);
-        showToast("クラウドへの同期に失敗しましたが、データはローカルに保存されています", "warning");
+        console.error('Firebaseとの同期エラー:', e);
+        showToast("クラウドとの同期に失敗しましたが、データはローカルに保存されています", "warning");
         return false;
       }
       
-      setPendingChanges(false);
-      showToast("データを同期しました", "success");
-      
-      // Firebase使用状況を更新
-      if (isAdminMode) {
-        try {
-          const info = await StorageService.getFirebaseStorageInfo();
-          if (info) {
-            setFirebaseStorageInfo(info);
+      // 同期が成功したらフラグを下げる
+      if (syncSuccess) {
+        setPendingChanges(false);
+        showToast("データを同期しました", "success");
+        
+        // Firebase使用状況を更新
+        if (isAdminMode) {
+          try {
+            const info = await StorageService.getFirebaseStorageInfo();
+            if (info) {
+              setFirebaseStorageInfo(info);
+            }
+          } catch (e) {
+            console.error('Firebase使用状況の更新に失敗:', e);
           }
-        } catch (e) {
-          console.error('Failed to update Firebase storage info:', e);
         }
+      } else {
+        showToast("同期に問題が発生しました。後でもう一度お試しください", "warning");
       }
       
       // スクロール位置を復元
@@ -770,13 +783,13 @@ const AttendanceApp: React.FC = () => {
           }, 50);
         }
       } catch (e) {
-        console.error('Failed to restore sync scroll position', e);
+        console.error('スクロール位置の復元に失敗:', e);
       }
       
       console.log("同期処理が完了しました");
-      return true;
+      return syncSuccess;
     } catch (error) {
-      console.error("Error syncing data:", error);
+      console.error("同期処理エラー:", error);
       showToast("データの同期に失敗しました", "error");
       return false;
     }
@@ -1040,33 +1053,57 @@ const clearSelectionForEmployee = (employeeId: number) => {
 };
 
 // 勤務区分を登録・更新
-const updateAttendanceRecord = (employeeId: number, date: Date, workType: string) => {
-  const dateStr = format(date, "yyyy-MM-dd");
-  const newAttendanceData = attendanceData.filter(
-    record => !(record.employeeId === employeeId.toString() && record.date === dateStr)
-  );
-  
-  const employeeName = employees.find(emp => emp.id === employeeId)?.name;
-  
-  if (workType) {
-    const newRecord: AttendanceRecord = {
-      employeeId: employeeId.toString(),
-      date: dateStr,
-      workType,
-      employeeName
-    };
-    newAttendanceData.push(newRecord);
-  }
-  
-  // ローカルストレージに直接保存も追加
+const updateAttendanceRecord = async (employeeId: number, date: Date, workType: string) => {
   try {
-    localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
-  } catch (e) {
-    console.error('Failed to save attendance data to localStorage:', e);
+    const dateStr = format(date, "yyyy-MM-dd");
+    const employeeName = employees.find(emp => emp.id === employeeId)?.name;
+    
+    // 既存データを除外
+    const newAttendanceData = attendanceData.filter(
+      record => !(record.employeeId === employeeId.toString() && record.date === dateStr)
+    );
+    
+    // 新しいレコードの作成（workTypeが指定されている場合のみ）
+    if (workType) {
+      const newRecord: AttendanceRecord = {
+        employeeId: employeeId.toString(),
+        date: dateStr,
+        workType,
+        employeeName
+      };
+      newAttendanceData.push(newRecord);
+    }
+    
+    // ローカルストレージに直接保存を試みる
+    try {
+      localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
+      console.log('勤務データ更新: ローカルストレージに保存しました');
+    } catch (e) {
+      console.error('勤務データ更新: ローカルストレージ保存エラー:', e);
+    }
+    
+    // IndexedDBにも保存を試みる
+    try {
+      await IndexedDBService.saveAttendanceData(newAttendanceData);
+      console.log('勤務データ更新: IndexedDBに保存しました');
+    } catch (e) {
+      console.error('勤務データ更新: IndexedDB保存エラー:', e);
+    }
+    
+    // 状態を更新
+    setAttendanceData(newAttendanceData);
+    
+    // オンライン状態なら同期フラグを立てる
+    if (navigator.onLine && !isOffline) {
+      setPendingChanges(true);
+    }
+    
+    return newAttendanceData;
+  } catch (error) {
+    console.error('勤務区分の更新に失敗しました:', error);
+    showToast("勤務区分の更新に失敗しました", "error");
+    return attendanceData; // 変更せず元のデータを返す
   }
-  
-  setAttendanceData(newAttendanceData);
-  return newAttendanceData;
 };
 
 // 利用可能な月リストを生成（過去24ヶ月〜将来3ヶ月まで）
@@ -2065,94 +2102,130 @@ const CalendarView = React.memo(() => {
       if (isBulkEditMode && isAdminMode && selectedCells.length > 0) {
         if (!selectedWorkType) return;
         
-        const newAttendanceData = [...attendanceData];
-        
-        selectedCells.forEach(cell => {
-          const dateStr = format(cell.date, "yyyy-MM-dd");
+        try {
+          const newAttendanceData = [...attendanceData];
           
-          // 既存のレコードを除外
-          const recordIndex = newAttendanceData.findIndex(
-            record => record.employeeId === cell.employeeId.toString() && record.date === dateStr
-          );
+          selectedCells.forEach(cell => {
+            const dateStr = format(cell.date, "yyyy-MM-dd");
+            
+            // 既存のレコードを除外
+            const recordIndex = newAttendanceData.findIndex(
+              record => record.employeeId === cell.employeeId.toString() && record.date === dateStr
+            );
+            
+            if (recordIndex !== -1) {
+              newAttendanceData.splice(recordIndex, 1);
+            }
+            
+            // 新しいレコードを追加
+            const newRecord: AttendanceRecord = {
+              employeeId: cell.employeeId.toString(),
+              date: dateStr,
+              workType: selectedWorkType,
+              employeeName: employees.find(emp => emp.id === cell.employeeId)?.name,
+            };
+            
+            newAttendanceData.push(newRecord);
+          });
           
-          if (recordIndex !== -1) {
-            newAttendanceData.splice(recordIndex, 1);
+          // ローカルストレージに保存
+          try {
+            localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
+            console.log('一括更新: ローカルストレージに保存しました');
+          } catch (e) {
+            console.error('一括更新: ローカルストレージ保存エラー:', e);
           }
           
-          // 新しいレコードを追加
-          const newRecord: AttendanceRecord = {
-            employeeId: cell.employeeId.toString(),
-            date: dateStr,
-            workType: selectedWorkType,
-            employeeName: employees.find(emp => emp.id === cell.employeeId)?.name,
-          };
+          // IndexedDBにも保存
+          try {
+            await IndexedDBService.saveAttendanceData(newAttendanceData);
+            console.log('一括更新: IndexedDBに保存しました');
+          } catch (e) {
+            console.error('一括更新: IndexedDB保存エラー:', e);
+          }
           
-          newAttendanceData.push(newRecord);
-        });
-        
-        // ローカルストレージに直接保存
-        try {
-          localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
-        } catch (e) {
-          console.error('Failed to save attendance data to localStorage:', e);
+          // 状態を更新
+          setAttendanceData(newAttendanceData);
+          setShowWorkTypeModal(false);
+          setSelectedCells([]);
+          setSelectedWorkType("");
+          
+          // 変更があったので同期フラグを立てる
+          if (navigator.onLine) {
+            setPendingChanges(true);
+            
+            // オプションで即時同期も可能
+            // await syncChanges();
+          }
+          
+          showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
+        } catch (error) {
+          console.error('一括更新エラー:', error);
+          showToast("勤務区分の一括更新に失敗しました", "error");
         }
-        
-        // 状態を更新
-        setAttendanceData(newAttendanceData);
-        setShowWorkTypeModal(false);
-        setSelectedCells([]);
-        setSelectedWorkType("");
-        
-        // オンラインなら同期処理を実行
-        if (navigator.onLine) {
-          syncChanges();
-        }
-        
-        showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
         return;
       }
       
       // 通常の編集モード
       if (!selectedCell || !selectedWorkType) return;
-
-      const dateStr = format(selectedCell.date, "yyyy-MM-dd");
-      const newAttendanceData = attendanceData.filter(
-        (record) =>
-          !(
-            record.employeeId === selectedCell.employeeId.toString() &&
-            record.date === dateStr
-          )
-      );
-
-      const newRecord: AttendanceRecord = {
-        employeeId: selectedCell.employeeId.toString(),
-        date: dateStr,
-        workType: selectedWorkType,
-        employeeName: employees.find(
-          (emp) => emp.id === selectedCell.employeeId
-        )?.name,
-      };
-
-      // ローカルストレージに直接保存
+      
       try {
+        const dateStr = format(selectedCell.date, "yyyy-MM-dd");
+        
+        // 既存データを除外して新しいデータを作成
+        const newAttendanceData = attendanceData.filter(
+          (record) =>
+            !(
+              record.employeeId === selectedCell.employeeId.toString() &&
+              record.date === dateStr
+            )
+        );
+    
+        const newRecord: AttendanceRecord = {
+          employeeId: selectedCell.employeeId.toString(),
+          date: dateStr,
+          workType: selectedWorkType,
+          employeeName: employees.find(
+            (emp) => emp.id === selectedCell.employeeId
+          )?.name,
+        };
+    
+        // 更新されたデータ
         const updatedData = [...newAttendanceData, newRecord];
-        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(updatedData));
-      } catch (e) {
-        console.error('Failed to save attendance data to localStorage:', e);
+        
+        // ローカルストレージに保存
+        try {
+          localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(updatedData));
+          console.log('勤務区分更新: ローカルストレージに保存しました');
+        } catch (e) {
+          console.error('勤務区分更新: ローカルストレージ保存エラー:', e);
+        }
+        
+        // IndexedDBにも保存
+        try {
+          await IndexedDBService.saveAttendanceData(updatedData);
+          console.log('勤務区分更新: IndexedDBに保存しました');
+        } catch (e) {
+          console.error('勤務区分更新: IndexedDB保存エラー:', e);
+        }
+        
+        // 状態を更新
+        setAttendanceData(updatedData);
+        setShowWorkTypeModal(false);
+        setSelectedCell(null);
+        setSelectedWorkType("");
+        
+        // 変更があったので同期フラグを立てる
+        if (navigator.onLine) {
+          setPendingChanges(true);
+        }
+        
+        const employeeName = employees.find(emp => emp.id === selectedCell.employeeId)?.name || "";
+        showToast(`${employeeName}さんの勤務区分を登録しました`, "success");
+      } catch (error) {
+        console.error('勤務区分更新エラー:', error);
+        showToast("勤務区分の更新に失敗しました", "error");
       }
-      
-      // 状態を更新
-      setAttendanceData([...newAttendanceData, newRecord]);
-      setShowWorkTypeModal(false);
-      setSelectedCell(null);
-      setSelectedWorkType("");
-      
-      // オンラインなら同期処理を実行
-      if (navigator.onLine) {
-        syncChanges();
-      }
-      
-      showToast(`${employees.find(emp => emp.id === selectedCell.employeeId)?.name}さんの勤務区分を登録しました`, "success");
     };
 
     const handleDelete = () => {

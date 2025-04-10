@@ -1,5 +1,6 @@
 // src/services/storage.ts
 import { FirebaseService } from './firebase';
+import { IndexedDBService } from './indexedDBService'; 
 
 // ストレージキーの定義
 export const STORAGE_KEYS = {
@@ -13,136 +14,239 @@ export const STORAGE_KEYS = {
 
 // 設定値
 const USE_FIREBASE = true; // Firebaseを使用するかどうか
+const USE_INDEXED_DB = true; // IndexedDBを使用するかどうか
 
 // ストレージサービス
 export const StorageService = {
-  // データ保存
+  // データ保存 - 優先順位: 1. LocalStorage (常に) 2. IndexedDB (有効時) 3. Firebase (オンライン時)
   async saveData<T>(key: string, data: T): Promise<boolean> {
-    // ローカルストレージに保存
+    // 常に最初にローカルストレージに保存を試みる (最も高速なアクセス)
+    let localStorageSuccess = false;
     try {
       localStorage.setItem(key, JSON.stringify(data));
+      localStorageSuccess = true;
+      console.log(`✓ ${key}をローカルストレージに保存しました`);
     } catch (error) {
-      console.error(`Error saving to localStorage: ${key}`, error);
-      return false;
+      console.error(`✗ ローカルストレージへの保存に失敗しました: ${key}`, error);
     }
     
-    // Firebaseに保存（特定のデータのみ）
+    // IndexedDBへの保存 (LocalStorageより容量が大きく、より信頼性が高い)
+    let indexedDBSuccess = false;
+    if (USE_INDEXED_DB) {
+      try {
+        // 主要データはIndexedDBにも保存
+        if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
+          await IndexedDBService.saveAttendanceData(data as any);
+          indexedDBSuccess = true;
+          console.log(`✓ ${key}をIndexedDBに保存しました`);
+        } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
+          await IndexedDBService.saveScheduleData(data as any);
+          indexedDBSuccess = true;
+          console.log(`✓ ${key}をIndexedDBに保存しました`);
+        } else {
+          // 設定データはシンプルなkey-valueとして保存
+          await IndexedDBService.saveSetting(key, data);
+          indexedDBSuccess = true;
+          console.log(`✓ ${key}を設定としてIndexedDBに保存しました`);
+        }
+      } catch (error) {
+        console.error(`✗ IndexedDBへの保存に失敗しました: ${key}`, error);
+      }
+    }
+    
+    // Firebaseに保存（オンライン時のみ）
+    let firebaseSuccess = false;
     if (USE_FIREBASE && navigator.onLine) {
       try {
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
             await FirebaseService.saveAttendanceData(data as any);
+            firebaseSuccess = true;
+            console.log(`✓ ${key}をFirebaseに保存しました`);
             break;
           case STORAGE_KEYS.SCHEDULE_DATA:
             await FirebaseService.saveScheduleData(data as any);
+            firebaseSuccess = true;
+            console.log(`✓ ${key}をFirebaseに保存しました`);
             break;
           case STORAGE_KEYS.ADMIN_MODE:
           case STORAGE_KEYS.CURRENT_VIEW:
           case STORAGE_KEYS.CURRENT_DATE:
           case STORAGE_KEYS.SELECTED_EMPLOYEE:
             await FirebaseService.saveSettings(key, data);
+            firebaseSuccess = true;
+            console.log(`✓ ${key}をFirebase設定に保存しました`);
             break;
         }
-        return true;
       } catch (error) {
-        console.error(`Error saving to Firebase: ${key}`, error);
-        return false;
+        console.error(`✗ Firebaseへの保存に失敗しました: ${key}`, error);
       }
     }
     
-    return true; // ローカルストレージへの保存が成功した場合
+    // すべてのストレージ操作が失敗した場合のみfalseを返す
+    return localStorageSuccess || indexedDBSuccess || firebaseSuccess;
   },
   
-  // データ取得
+  // ローカルストレージからデータを取得
   getData<T>(key: string, defaultValue: T): T {
     try {
       const savedData = localStorage.getItem(key);
       return savedData ? JSON.parse(savedData) : defaultValue;
     } catch (error) {
-      console.error(`Error loading from localStorage: ${key}`, error);
+      console.error(`✗ ローカルストレージからの読み込みに失敗しました: ${key}`, error);
       return defaultValue;
     }
   },
   
-  // データを非同期で取得（Firebase対応）
+  // データを非同期で取得 - 優先順位: 1. Firebase (オンライン時) 2. IndexedDB 3. LocalStorage
   async getDataAsync<T>(key: string, defaultValue: T): Promise<T> {
+    let data = defaultValue;
+    let dataSource = "default";
+    
+    // 1. まずFirebaseから取得を試みる (最新のデータを取得)
     if (USE_FIREBASE && navigator.onLine) {
       try {
+        let firebaseData = null;
+        
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
-            const fbAttendance = await FirebaseService.getAttendanceData();
-            if (fbAttendance && fbAttendance.length > 0) {
-              // 最新データをローカルストレージにも保存
-              try {
-                localStorage.setItem(key, JSON.stringify(fbAttendance));
-              } catch (error) {
-                console.error(`Error saving Firebase data to localStorage: ${key}`, error);
-              }
-              return fbAttendance as any;
-            }
+            firebaseData = await FirebaseService.getAttendanceData();
             break;
           case STORAGE_KEYS.SCHEDULE_DATA:
-            const fbSchedule = await FirebaseService.getScheduleData();
-            if (fbSchedule && fbSchedule.length > 0) {
-              // 最新データをローカルストレージにも保存
-              try {
-                localStorage.setItem(key, JSON.stringify(fbSchedule));
-              } catch (error) {
-                console.error(`Error saving Firebase data to localStorage: ${key}`, error);
-              }
-              return fbSchedule as any;
-            }
+            firebaseData = await FirebaseService.getScheduleData();
             break;
           case STORAGE_KEYS.ADMIN_MODE:
           case STORAGE_KEYS.CURRENT_VIEW:
           case STORAGE_KEYS.CURRENT_DATE:
           case STORAGE_KEYS.SELECTED_EMPLOYEE:
-            return await FirebaseService.getSettings(key, defaultValue);
-          default:
-            return this.getData(key, defaultValue);
+            firebaseData = await FirebaseService.getSettings(key, defaultValue);
+            break;
+        }
+        
+        if (firebaseData && (Array.isArray(firebaseData) ? firebaseData.length > 0 : true)) {
+          data = firebaseData as any;
+          dataSource = "Firebase";
+          
+          // Firebaseから取得できたデータは他のストレージにも保存 (同期化)
+          try {
+            localStorage.setItem(key, JSON.stringify(data));
+            console.log(`✓ Firebase→ローカルストレージに同期: ${key}`);
+            
+            if (USE_INDEXED_DB) {
+              if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
+                await IndexedDBService.saveAttendanceData(data as any);
+              } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
+                await IndexedDBService.saveScheduleData(data as any);
+              } else {
+                await IndexedDBService.saveSetting(key, data);
+              }
+              console.log(`✓ Firebase→IndexedDBに同期: ${key}`);
+            }
+          } catch (syncError) {
+            console.error('✗ Firebaseデータのローカル同期に失敗:', syncError);
+          }
         }
       } catch (error) {
-        console.error(`Error loading from Firebase: ${key}`, error);
-        // Firebaseが失敗した場合、ローカルストレージから取得
-        console.log(`Fallback to localStorage for: ${key}`);
+        console.warn(`⚠ Firebaseからの読み込みに失敗しました: ${key}`, error);
       }
     }
     
-    // オフラインまたはFirebaseの取得に失敗した場合は、ローカルストレージから取得
-    console.log(`Getting data from localStorage for: ${key}`);
-    return this.getData(key, defaultValue);
+    // 2. Firebaseから取得できなかった場合はIndexedDBを試す
+    if (dataSource === "default" && USE_INDEXED_DB) {
+      try {
+        let indexedDBData = null;
+        
+        if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
+          indexedDBData = await IndexedDBService.getAttendanceData();
+        } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
+          indexedDBData = await IndexedDBService.getScheduleData();
+        } else {
+          indexedDBData = await IndexedDBService.getSetting(key);
+        }
+        
+        if (indexedDBData && (Array.isArray(indexedDBData) ? indexedDBData.length > 0 : true)) {
+          data = indexedDBData as any;
+          dataSource = "IndexedDB";
+          
+          // IndexedDBから取得できたデータはローカルストレージにも同期
+          try {
+            localStorage.setItem(key, JSON.stringify(data));
+            console.log(`✓ IndexedDB→ローカルストレージに同期: ${key}`);
+          } catch (syncError) {
+            console.error('✗ IndexedDBデータのローカル同期に失敗:', syncError);
+          }
+        }
+      } catch (error) {
+        console.warn(`⚠ IndexedDBからの読み込みに失敗しました: ${key}`, error);
+      }
+    }
+    
+    // 3. 最後にローカルストレージを試す
+    if (dataSource === "default") {
+      try {
+        const localData = this.getData(key, defaultValue);
+        if (localData !== defaultValue) {
+          data = localData;
+          dataSource = "LocalStorage";
+        }
+      } catch (error) {
+        console.error(`✗ ローカルストレージからの読み込みに失敗しました: ${key}`, error);
+      }
+    }
+    
+    console.log(`📂 ${key}のデータソース: ${dataSource}`);
+    return data;
   },
   
   // 特定の月のデータを削除
   async deleteMonthData(yearMonth: string): Promise<boolean> {
     try {
-      // 現在のデータを取得
+      // 現在のデータを取得して、対象月以外をフィルタリング
       let attendanceData = this.getData<any[]>(STORAGE_KEYS.ATTENDANCE_DATA, []);
       let scheduleData = this.getData<any[]>(STORAGE_KEYS.SCHEDULE_DATA, []);
       
-      // 対象月以外のデータをフィルタリング
       attendanceData = attendanceData.filter(item => !item.date.startsWith(yearMonth));
       scheduleData = scheduleData.filter(item => !item.date.startsWith(yearMonth));
       
-      // ローカルストレージに保存
+      // 各ストレージに保存
+      let success = false;
+      
+      // 1. ローカルストレージに保存
       try {
         localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
         localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
+        success = true;
       } catch (error) {
-        console.error("Error saving filtered data to localStorage", error);
+        console.error("✗ フィルタリングデータのローカルストレージ保存に失敗:", error);
       }
       
-      // Firebaseにも反映（オンラインの場合のみ）
+      // 2. IndexedDBに保存
+      if (USE_INDEXED_DB) {
+        try {
+          await IndexedDBService.saveAttendanceData(attendanceData);
+          await IndexedDBService.saveScheduleData(scheduleData);
+          success = true;
+        } catch (error) {
+          console.error("✗ フィルタリングデータのIndexedDB保存に失敗:", error);
+        }
+      }
+      
+      // 3. Firebaseから削除
       if (USE_FIREBASE && navigator.onLine) {
-        await Promise.all([
-          FirebaseService.deleteMonthAttendanceData(yearMonth),
-          FirebaseService.deleteMonthScheduleData(yearMonth)
-        ]);
+        try {
+          await Promise.all([
+            FirebaseService.deleteMonthAttendanceData(yearMonth),
+            FirebaseService.deleteMonthScheduleData(yearMonth)
+          ]);
+          success = true;
+        } catch (error) {
+          console.error("✗ Firebaseからの月次データ削除に失敗:", error);
+        }
       }
       
-      return true;
+      return success;
     } catch (error) {
-      console.error("Error deleting month data:", error);
+      console.error("✗ 月次データ削除エラー:", error);
       return false;
     }
   },
@@ -150,22 +254,40 @@ export const StorageService = {
   // 全データをリセット
   async resetAllData(): Promise<boolean> {
     try {
-      // ローカルストレージをクリア
+      let success = false;
+      
+      // 1. ローカルストレージをクリア
       try {
         localStorage.removeItem(STORAGE_KEYS.ATTENDANCE_DATA);
         localStorage.removeItem(STORAGE_KEYS.SCHEDULE_DATA);
+        success = true;
       } catch (error) {
-        console.error("Error clearing localStorage", error);
+        console.error("✗ ローカルストレージのクリアに失敗:", error);
       }
       
-      // Firebaseもクリア（オンラインの場合のみ）
+      // 2. IndexedDBをクリア
+      if (USE_INDEXED_DB) {
+        try {
+          await IndexedDBService.clearAll();
+          success = true;
+        } catch (error) {
+          console.error("✗ IndexedDBのクリアに失敗:", error);
+        }
+      }
+      
+      // 3. Firebaseをクリア
       if (USE_FIREBASE && navigator.onLine) {
-        await FirebaseService.deleteAllData();
+        try {
+          await FirebaseService.deleteAllData();
+          success = true;
+        } catch (error) {
+          console.error("✗ Firebaseのクリアに失敗:", error);
+        }
       }
       
-      return true;
+      return success;
     } catch (error) {
-      console.error("Error resetting all data:", error);
+      console.error("✗ 全データリセットエラー:", error);
       return false;
     }
   },
@@ -175,12 +297,6 @@ export const StorageService = {
     if (!USE_FIREBASE || !navigator.onLine) return null;
     
     try {
-      // Firebaseの使用状況を取得
-      // この部分はFirebaseの実際のAPIに合わせて調整してください
-      // 例: Firebase Admin SDKを使用した場合など
-      
-      // ダミーデータ（Firebase Firestoreの無料枠は1GiBなのでそれを基準にしています）
-      // 実際はFirebase Adminの情報を取得
       const usageBytesFromFirebase = await FirebaseService.estimateStorageSize();
       const maxBytes = 1024 * 1024 * 1024; // 1GiB (無料枠)
       
@@ -193,13 +309,66 @@ export const StorageService = {
         percentage: percentage
       };
     } catch (error) {
-      console.error("Error getting Firebase storage info:", error);
+      console.error("✗ Firebase使用状況の取得エラー:", error);
       return {
         usageGiB: "不明",
         maxGiB: "1 GiB",
         percentage: "不明"
       };
     }
+  },
+  
+  // ストレージの総合的な健全性チェック
+  async checkStorageHealth(): Promise<{
+    localStorage: boolean;
+    indexedDB: boolean;
+    firebase: boolean;
+    totalSuccessCount: number;
+  }> {
+    const status = {
+      localStorage: false,
+      indexedDB: false,
+      firebase: false,
+      totalSuccessCount: 0
+    };
+    
+    // ローカルストレージをチェック
+    try {
+      const testKey = "_storage_health_check";
+      const testValue = { time: Date.now() };
+      localStorage.setItem(testKey, JSON.stringify(testValue));
+      const retrievedValue = JSON.parse(localStorage.getItem(testKey) || "{}");
+      localStorage.removeItem(testKey);
+      
+      status.localStorage = retrievedValue.time === testValue.time;
+      if (status.localStorage) status.totalSuccessCount++;
+    } catch (e) {
+      console.error("✗ ローカルストレージのヘルスチェックに失敗:", e);
+    }
+    
+    // IndexedDBをチェック
+    if (USE_INDEXED_DB) {
+      try {
+        status.indexedDB = await IndexedDBService.healthCheck();
+        if (status.indexedDB) status.totalSuccessCount++;
+      } catch (e) {
+        console.error("✗ IndexedDBのヘルスチェックに失敗:", e);
+      }
+    }
+    
+    // Firebaseをチェック
+    if (USE_FIREBASE && navigator.onLine) {
+      try {
+        // 簡易的な接続チェック
+        const timestamp = await FirebaseService.getSettings("_health_check_timestamp", 0);
+        status.firebase = true;
+        if (status.firebase) status.totalSuccessCount++;
+      } catch (e) {
+        console.error("✗ Firebaseのヘルスチェックに失敗:", e);
+      }
+    }
+    
+    return status;
   },
   
   // ストレージ使用状況確認
@@ -215,7 +384,7 @@ export const StorageService = {
       
       return null;
     } catch (error) {
-      console.error("Error checking storage usage:", error);
+      console.error("✗ ストレージ使用状況チェックエラー:", error);
       return null;
     }
   },
@@ -248,12 +417,30 @@ export const StorageService = {
         totalSize: this.formatBytes(totalBytes),
         usagePercentage: `${((totalBytes / maxBytes) * 100).toFixed(1)}%`,
         available: maxBytes - totalBytes,
-        details: details.sort((a, b) => 
-          parseInt(b.size) - parseInt(a.size)
-        ),
+        details: details.sort((a, b) => {
+          // 文字列からバイト数を取り出す
+          const sizeA = parseFloat(a.size.split(' ')[0]);
+          const sizeB = parseFloat(b.size.split(' ')[0]);
+          
+          // 単位を考慮
+          const unitA = a.size.split(' ')[1];
+          const unitB = b.size.split(' ')[1];
+          
+          const unitMultiplier = {
+            'Bytes': 1,
+            'KB': 1024,
+            'MB': 1024 * 1024,
+            'GB': 1024 * 1024 * 1024
+          };
+          
+          const bytesA = sizeA * (unitMultiplier[unitA as keyof typeof unitMultiplier] || 1);
+          const bytesB = sizeB * (unitMultiplier[unitB as keyof typeof unitMultiplier] || 1);
+          
+          return bytesB - bytesA;
+        }),
       };
     } catch (error) {
-      console.error("Error getting storage usage:", error);
+      console.error("✗ ストレージ使用状況取得エラー:", error);
       return {
         totalSize: "不明",
         usagePercentage: "不明",
