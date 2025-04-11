@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { format, parse, isSameMonth, addMonths, subMonths, startOfMonth } from "date-fns";
+import { useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
 import JapaneseHolidays from "japanese-holidays";
 import Modal from "./components/Modal";
@@ -203,6 +204,11 @@ const AttendanceApp: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>("calendar");
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [selectedEmployee, setSelectedEmployee] = useState<string>("");
+
+  // パフォーマンス最適化用のキャッシュ
+  const [dailySummaryCache] = useState(() => new Map<string, DailySummary>());
+  const [workTypeCache] = useState(() => new Map<string, string | null>());
+  const [scheduleCache] = useState(() => new Map<string, ScheduleItem[]>());
 
   // データ関連
   const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>([]);
@@ -659,25 +665,25 @@ useEffect(() => {
   //---------------------------------------------------------------
   // ヘルパー関数
   //---------------------------------------------------------------
-  // 勤務区分の表示順にソートする関数
-  const sortWorkTypeSummary = (summary: DailySummary) => {
-    return Object.entries(summary).sort((a: [string, number], b: [string, number]) => {
-      const indexA = WORK_TYPE_DISPLAY_ORDER.indexOf(a[0]);
-      const indexB = WORK_TYPE_DISPLAY_ORDER.indexOf(b[0]);
-      
-      // 表示順リストにある場合はその順序を使用
-      if (indexA !== -1 && indexB !== -1) {
-        return indexA - indexB;
-      }
-      
-      // どちらか一方だけリストにある場合は、リストにある方を優先
-      if (indexA !== -1) return -1;
-      if (indexB !== -1) return 1;
-      
-      // どちらもリストにない場合はアルファベット順
-      return a[0].localeCompare(b[0]);
-    });
-  };
+// 勤務区分の表示順にソートする関数（メモ化）
+const sortWorkTypeSummary = useCallback((summary: DailySummary) => {
+  return Object.entries(summary).sort((a: [string, number], b: [string, number]) => {
+    const indexA = WORK_TYPE_DISPLAY_ORDER.indexOf(a[0]);
+    const indexB = WORK_TYPE_DISPLAY_ORDER.indexOf(b[0]);
+    
+    // 表示順リストにある場合はその順序を使用
+    if (indexA !== -1 && indexB !== -1) {
+      return indexA - indexB;
+    }
+    
+    // どちらか一方だけリストにある場合は、リストにある方を優先
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+    
+    // どちらもリストにない場合はアルファベット順
+    return a[0].localeCompare(b[0]);
+  });
+}, []);
 
   // ビューポートメタタグを更新
   const updateViewportMetaTag = () => {
@@ -877,53 +883,95 @@ const syncChanges = async () => {
     return dates;
   };
 
-  // 日次集計を計算
-  const calculateDailySummary = (date: Date): DailySummary => {
-    const dateStr = format(date, "yyyy-MM-dd");
-    const records = attendanceData.filter((record) => {
-      // 除外対象の従業員は集計に含めない
-      if (EXCLUDED_EMPLOYEE_IDS.includes(Number(record.employeeId))) {
-        return false;
-      }
-      return record.date === dateStr;
-    });
+// 日次集計を計算（メモ化）
+const calculateDailySummary = useCallback((date: Date): DailySummary => {
+  const dateStr = format(date, "yyyy-MM-dd");
+  
+  // キャッシュされている場合はキャッシュから返す
+  if (dailySummaryCache.has(dateStr)) {
+    return dailySummaryCache.get(dateStr)!;
+  }
+  
+  const records = attendanceData.filter((record) => {
+    // 除外対象の従業員は集計に含めない
+    if (EXCLUDED_EMPLOYEE_IDS.includes(Number(record.employeeId))) {
+      return false;
+    }
+    return record.date === dateStr;
+  });
 
-    return records.reduce((acc, record) => {
-      acc[record.workType] = (acc[record.workType] || 0) + 1;
-      return acc;
-    }, {} as DailySummary);
-  };
+  const summary = records.reduce((acc, record) => {
+    acc[record.workType] = (acc[record.workType] || 0) + 1;
+    return acc;
+  }, {} as DailySummary);
+  
+  // 結果をキャッシュ
+  dailySummaryCache.set(dateStr, summary);
+  return summary;
+}, [attendanceData, dailySummaryCache]);
 
-  // 特定の日付の予定を取得
-  const getScheduleForDate = (date: Date) => {
-    const dateStr = format(date, "yyyy-MM-dd");
-    return scheduleData.filter(schedule => schedule.date === dateStr);
-  };
+// 特定の日付の予定を取得（メモ化）
+const getScheduleForDate = useCallback((date: Date) => {
+  const dateStr = format(date, "yyyy-MM-dd");
+  
+  // キャッシュされている場合はキャッシュから返す
+  if (scheduleCache.has(dateStr)) {
+    return scheduleCache.get(dateStr)!;
+  }
+  
+  const schedules = scheduleData.filter(schedule => schedule.date === dateStr);
+  
+  // 結果をキャッシュ
+  scheduleCache.set(dateStr, schedules);
+  return schedules;
+}, [scheduleData, scheduleCache]);
 
-  // 特定の従業員と日付の予定を取得
-  const getEmployeeScheduleForDate = (employeeId: number, date: Date) => {
-    const dateStr = format(date, "yyyy-MM-dd");
-    return scheduleData.filter(
-      schedule => 
-        schedule.date === dateStr && 
-        (schedule.employeeId === "" || // 後方互換性のため
-         schedule.employeeId === employeeId.toString() || 
-         (schedule.employeeIds && 
-          (schedule.employeeIds.includes(employeeId.toString()) || 
-           schedule.employeeIds.length === 0)) // 空配列は全員向け
-        )
-    );
-  };
+// 特定の従業員と日付の予定を取得（メモ化）
+const getEmployeeScheduleForDate = useCallback((employeeId: number, date: Date) => {
+  const dateStr = format(date, "yyyy-MM-dd");
+  const cacheKey = `${employeeId}_${dateStr}`;
+  
+  // キャッシュの活用
+  if (scheduleCache.has(cacheKey)) {
+    return scheduleCache.get(cacheKey)!;
+  }
+  
+  const schedules = scheduleData.filter(
+    schedule => 
+      schedule.date === dateStr && 
+      (schedule.employeeId === "" || // 後方互換性のため
+        schedule.employeeId === employeeId.toString() || 
+        (schedule.employeeIds && 
+        (schedule.employeeIds.includes(employeeId.toString()) || 
+          schedule.employeeIds.length === 0)) // 空配列は全員向け
+      )
+  );
+  
+  // 結果をキャッシュ
+  scheduleCache.set(cacheKey, schedules);
+  return schedules;
+}, [scheduleData, scheduleCache]);
 
-  // 特定の従業員と日付の勤務区分を取得
-  const getEmployeeWorkTypeForDate = (employeeId: number, date: Date): string | null => {
-    const dateStr = format(date, "yyyy-MM-dd");
-    const record = attendanceData.find(
-      record => record.employeeId === employeeId.toString() && record.date === dateStr
-    );
-    
-    return record ? record.workType : null;
-  };
+// 特定の従業員と日付の勤務区分を取得（メモ化）
+const getEmployeeWorkTypeForDate = useCallback((employeeId: number, date: Date): string | null => {
+  const dateStr = format(date, "yyyy-MM-dd");
+  const cacheKey = `${employeeId}_${dateStr}`;
+  
+  // キャッシュの活用
+  if (workTypeCache.has(cacheKey)) {
+    return workTypeCache.get(cacheKey) ?? null;
+  }
+  
+  const record = attendanceData.find(
+    record => record.employeeId === employeeId.toString() && record.date === dateStr
+  );
+  
+  const result = record ? record.workType : null;
+  
+  // 結果をキャッシュ
+  workTypeCache.set(cacheKey, result);
+  return result;
+}, [attendanceData, workTypeCache]);
   
   // 平日（月〜金）かどうかを判定する関数
   const isWeekday = (date: Date): boolean => {
@@ -1048,34 +1096,36 @@ const showStorageUsage = () => {
   setShowStorageUsageModal(true);
 };
 
-// セルの選択・非選択を切り替える
-const toggleCellSelection = (employeeId: number, date: Date, ctrlKey: boolean = false) => {
+// セルの選択・非選択を切り替える（メモ化）
+const toggleCellSelection = useCallback((employeeId: number, date: Date, ctrlKey: boolean = false) => {
   if (!isBulkEditMode || !isAdminMode) return;
   
-  const cellIndex = selectedCells.findIndex(
-    cell => cell.employeeId === employeeId && cell.date.getTime() === date.getTime()
-  );
-  
-  if (cellIndex !== -1) {
-    // すでに選択されている場合は削除
-    setSelectedCells(prev => prev.filter((_, i) => i !== cellIndex));
-  } else {
-    // 選択されていない場合は追加
-    // Ctrlキーまたはモバイル選択モードが有効でない場合は選択をクリア
-    if (!ctrlKey && !isMobileSelectMode && selectedCells.length > 0) {
-      setSelectedCells([{ employeeId, date }]);
+  setSelectedCells(prev => {
+    const cellIndex = prev.findIndex(
+      cell => cell.employeeId === employeeId && cell.date.getTime() === date.getTime()
+    );
+    
+    if (cellIndex !== -1) {
+      // すでに選択されている場合は削除
+      return prev.filter((_, i) => i !== cellIndex);
     } else {
-      setSelectedCells(prev => [...prev, { employeeId, date }]);
+      // 選択されていない場合は追加
+      // Ctrlキーまたはモバイル選択モードが有効でない場合は選択をクリア
+      if (!ctrlKey && !isMobileSelectMode && prev.length > 0) {
+        return [{ employeeId, date }];
+      } else {
+        return [...prev, { employeeId, date }];
+      }
     }
-  }
-};
+  });
+}, [isBulkEditMode, isAdminMode, isMobileSelectMode]);
 
-// セルが選択されているかを確認
-const isCellSelected = (employeeId: number, date: Date) => {
+// セルが選択されているかを確認（メモ化）
+const isCellSelected = useCallback((employeeId: number, date: Date) => {
   return selectedCells.some(
     cell => cell.employeeId === employeeId && cell.date.getTime() === date.getTime()
   );
-};
+}, [selectedCells]);
 
 // 全セルを選択
 const selectAllCellsForEmployee = (employeeId: number) => {
@@ -1458,23 +1508,23 @@ const TableView = React.memo(() => {
     }
   };
 
-  // スクロール位置を復元するためのuseEffect
+  // スクロール位置を復元するためのuseEffect（パフォーマンス最適化）
   useEffect(() => {
     if (scrollMemory.shouldRestore && tableContainerRef.current) {
-      // 次のレンダリングサイクルで実行するために setTimeout を使用
-      const timeoutId = setTimeout(() => {
+      // アニメーションフレームを使用してよりスムーズに処理
+      const animationId = requestAnimationFrame(() => {
         if (tableContainerRef.current) {
           tableContainerRef.current.scrollLeft = scrollMemory.x;
           tableContainerRef.current.scrollTop = scrollMemory.y;
         }
         // 復元完了フラグをリセット
         setScrollMemory(prev => ({ ...prev, shouldRestore: false }));
-      }, 0);
+      });
       
-      return () => clearTimeout(timeoutId);
+      return () => cancelAnimationFrame(animationId);
     }
-  }, [scrollMemory.shouldRestore, showWorkTypeModal, showScheduleModal]);
-  
+  }, [scrollMemory.shouldRestore]);
+
   // グローバルスクロール位置が変更された場合にも復元を試みる
   useEffect(() => {
     if (tableContainerRef.current && globalScrollPosition.x !== 0 && globalScrollPosition.y !== 0) {
@@ -1488,13 +1538,15 @@ const TableView = React.memo(() => {
     }
   }, [showWorkTypeModal, isAdminMode, isBulkEditMode]);
 
-  // セル選択時のスクロール位置保持処理
-  const handleCellClick = (e: React.MouseEvent, employeeId: number, date: Date) => {
-    // スクロール位置を記憶
-    rememberScrollPosition();
+  // セル選択時のスクロール位置保持処理（パフォーマンス最適化）
+  const handleCellClick = useCallback((e: React.MouseEvent, employeeId: number, date: Date) => {
+    e.preventDefault(); // 不要なイベントの伝播を防止
     
-    // グローバルなスクロール位置も更新
-    captureTableScroll();
+    // パフォーマンス改善: 非同期でスクロール位置を記憶
+    requestAnimationFrame(() => {
+      rememberScrollPosition();
+      captureTableScroll();
+    });
 
     // 通常の選択処理
     if (isBulkEditMode && isAdminMode) {
@@ -1503,7 +1555,7 @@ const TableView = React.memo(() => {
       setSelectedCell({ employeeId, date });
       setShowWorkTypeModal(true);
     }
-  };
+  }, [isBulkEditMode, isAdminMode, isCtrlPressed, rememberScrollPosition, captureTableScroll, toggleCellSelection, setSelectedCell, setShowWorkTypeModal]);
   
   // 同じ従業員の週区切りでセルを選択
   const selectWeekCells = (employeeId: number, startDate: Date) => {

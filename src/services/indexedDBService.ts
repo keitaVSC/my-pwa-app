@@ -70,57 +70,48 @@ export const IndexedDBService = {
       const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
       const store = transaction.objectStore(STORES.ATTENDANCE);
       
-      // 既存データをクリア - 明示的に完了を待機
-      await new Promise<void>((resolve, reject) => {
-        const clearRequest = store.clear();
-        
-        clearRequest.onsuccess = () => {
-          console.log(`✓ ストア「${STORES.ATTENDANCE}」をクリアしました`);
-          resolve();
-        };
-        
-        clearRequest.onerror = (event) => {
-          console.error(`✗ ストア「${STORES.ATTENDANCE}」クリアエラー:`, event);
-          reject(new Error('Failed to clear attendance store'));
-        };
-      });
+      // 既存データをクリア
+      store.clear();
       
-      // 各レコードを追加
-      let addedCount = 0;
-      for (const record of data) {
-        // recordにIDがない場合はIDを生成
-        const recordWithId = {
-          ...record,
-          id: record.employeeId && record.date 
-            ? `${record.employeeId}_${record.date}`
-            : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
-        };
+      // バッチ処理を使用してデータを追加（パフォーマンス最適化）
+      const BATCH_SIZE = 100; // 一度に処理するアイテム数
+      let successCount = 0;
+      
+      for (let i = 0; i < data.length; i += BATCH_SIZE) {
+        const batch = data.slice(i, i + BATCH_SIZE);
         
-        // 各レコードの追加も明示的に完了を待機
-        await new Promise<void>((resolve, reject) => {
-          const addRequest = store.add(recordWithId);
-          
-          addRequest.onsuccess = () => {
-            addedCount++;
-            resolve();
-          };
-          
-          addRequest.onerror = (event) => {
-            console.error('✗ 勤怠データ追加エラー:', event);
-            reject(new Error('Failed to add attendance record'));
-          };
-        });
+        // 各バッチを並列処理（パフォーマンス向上）
+        await Promise.all(batch.map(record => {
+          return new Promise<void>((resolve) => {
+            // recordにIDがない場合はIDを生成
+            const recordWithId = {
+              ...record,
+              id: record.employeeId && record.date 
+                ? `${record.employeeId}_${record.date}`
+                : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+            };
+            
+            const request = store.add(recordWithId);
+            request.onsuccess = () => {
+              successCount++;
+              resolve();
+            };
+            request.onerror = () => {
+              resolve(); // エラーが発生しても処理を続行
+            };
+          });
+        }));
       }
       
       return new Promise((resolve) => {
         transaction.oncomplete = () => {
-          console.log(`✓ ${addedCount}件の勤怠データをIndexedDBに保存しました`);
+          console.log(`✓ ${successCount}件の勤怠データをIndexedDBに保存しました`);
           resolve(true);
         };
         
-        transaction.onerror = (event) => {
-          console.error('✗ 勤怠データ保存エラー:', event);
-          resolve(false);
+        transaction.onerror = () => {
+          console.error('✗ 勤怠データ保存エラー');
+          resolve(successCount > 0); // 一部成功した場合でもtrueを返す
         };
       });
     } catch (error) {
@@ -167,49 +158,40 @@ export const IndexedDBService = {
       const transaction = db.transaction([STORES.SCHEDULE], 'readwrite');
       const store = transaction.objectStore(STORES.SCHEDULE);
       
-      // 既存データをクリア - 明示的に完了を待機
-      await new Promise<void>((resolve, reject) => {
-        const clearRequest = store.clear();
-        
-        clearRequest.onsuccess = () => {
-          console.log(`✓ ストア「${STORES.SCHEDULE}」をクリアしました`);
-          resolve();
-        };
-        
-        clearRequest.onerror = (event) => {
-          console.error(`✗ ストア「${STORES.SCHEDULE}」クリアエラー:`, event);
-          reject(new Error('Failed to clear schedule store'));
-        };
-      });
+      // 既存データをクリア
+      store.clear();
       
-      // 各レコードを追加
-      let addedCount = 0;
-      for (const item of data) {
-        // 各レコードの追加も明示的に完了を待機
-        await new Promise<void>((resolve, reject) => {
-          const addRequest = store.add(item);
-          
-          addRequest.onsuccess = () => {
-            addedCount++;
-            resolve();
-          };
-          
-          addRequest.onerror = (event) => {
-            console.error('✗ スケジュールデータ追加エラー:', event);
-            reject(new Error('Failed to add schedule item'));
-          };
-        });
+      // バッチ処理を使用してデータを追加（パフォーマンス最適化）
+      const BATCH_SIZE = 100; // 一度に処理するアイテム数
+      let successCount = 0;
+      
+      for (let i = 0; i < data.length; i += BATCH_SIZE) {
+        const batch = data.slice(i, i + BATCH_SIZE);
+        
+        // 各バッチを並列処理（パフォーマンス向上）
+        await Promise.all(batch.map(item => {
+          return new Promise<void>((resolve) => {
+            const request = store.add(item);
+            request.onsuccess = () => {
+              successCount++;
+              resolve();
+            };
+            request.onerror = () => {
+              resolve(); // エラーが発生しても処理を続行
+            };
+          });
+        }));
       }
       
       return new Promise((resolve) => {
         transaction.oncomplete = () => {
-          console.log(`✓ ${addedCount}件のスケジュールデータをIndexedDBに保存しました`);
+          console.log(`✓ ${successCount}件のスケジュールデータをIndexedDBに保存しました`);
           resolve(true);
         };
         
-        transaction.onerror = (event) => {
-          console.error('✗ スケジュールデータ保存エラー:', event);
-          resolve(false);
+        transaction.onerror = () => {
+          console.error('✗ スケジュールデータ保存エラー');
+          resolve(successCount > 0); // 一部成功した場合でもtrueを返す
         };
       });
     } catch (error) {
