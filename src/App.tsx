@@ -708,22 +708,39 @@ useEffect(() => {
     
     const yearMonth = format(currentDate, "yyyy-MM");
     
-    attendanceData.forEach(record => {
-      if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
-        if (record.workType === '休') {
-          // 日付文字列から Date オブジェクトを作成
-          const recordDate = new Date(record.date);
-          // 土曜日の場合は0.5点、それ以外の日は1.0点
-          if (isSaturday(recordDate)) {
-            score += 0.5;
-          } else {
-            score += 1.0;
-          }
-        } else if (record.workType === 'A' || record.workType === 'P' || record.workType === 'Ap') {
-          score += 0.5;
-        }
+  // 日付ごとに最新の勤務区分だけを取得するためのマップ
+  const dateWorkTypeMap = new Map<string, string>();
+  
+  // 同じ日付のデータが複数ある場合、後のデータ（おそらく最新）で上書き
+  attendanceData.forEach(record => {
+    if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
+      dateWorkTypeMap.set(record.date, record.workType);
+    }
+  });
+  
+  // マップに整理された（重複のない）データでスコア計算
+  dateWorkTypeMap.forEach((workType, dateStr) => {
+    if (workType === '休') {
+      // 日付文字列から Date オブジェクトを作成
+      const recordDate = new Date(dateStr);
+      // 土曜日の場合は0.5点、それ以外の日は1.0点
+      if (isSaturday(recordDate)) {
+        score += 0.5;
+      } else {
+        score += 1.0;
       }
-    });
+    } else if (workType === 'A' || workType === 'P' || workType === 'Ap') {
+      score += 0.5;
+    }
+  });
+  
+  // デバッグ情報を出力（必要に応じてコメントアウト）
+  if (employeeId === 19) { // 中谷さんのID
+    console.log(`${employees.find(emp => emp.id === employeeId)?.name}の集計:`, 
+                `元データ数=${attendanceData.filter(r => r.employeeId === employeeId.toString() && r.date.startsWith(yearMonth)).length}`,
+                `重複除去後=${dateWorkTypeMap.size}`,
+                `スコア=${score}`);
+  }
     
     return score;
   };
