@@ -2193,10 +2193,20 @@ const CalendarView = React.memo(() => {
       if (isBulkEditMode && isAdminMode && selectedCells.length > 0) {
         if (!selectedWorkType) return;
         
+        // まずモーダルを閉じる - これが重要な変更
+        const cellsCount = selectedCells.length;
+        const cellsCopy = [...selectedCells];
+        const workTypeCopy = selectedWorkType;
+        
+        setShowWorkTypeModal(false);
+        setSelectedCells([]);
+        setSelectedWorkType("");
+        
         try {
           const newAttendanceData = [...attendanceData];
           
-          selectedCells.forEach(cell => {
+          // コピーした配列を使用
+          cellsCopy.forEach(cell => {
             const dateStr = format(cell.date, "yyyy-MM-dd");
             
             // 既存のレコードを除外
@@ -2212,56 +2222,50 @@ const CalendarView = React.memo(() => {
             const newRecord: AttendanceRecord = {
               employeeId: cell.employeeId.toString(),
               date: dateStr,
-              workType: selectedWorkType,
+              workType: workTypeCopy,
               employeeName: employees.find(emp => emp.id === cell.employeeId)?.name,
             };
             
             newAttendanceData.push(newRecord);
           });
           
-          // ローカルストレージとIndexedDBに保存
-          try {
-            localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
-            await IndexedDBService.saveAttendanceData(newAttendanceData);
-            console.log('一括更新: ローカルに保存しました');
-          } catch (e) {
-            console.error('ローカル保存エラー:', e);
-          }
-          
           // 状態を更新
           setAttendanceData(newAttendanceData);
           
-          // オンライン時は即時同期
-          if (navigator.onLine) {
-            try {
-              const success = await StorageService.saveData(
-                STORAGE_KEYS.ATTENDANCE_DATA, 
-                newAttendanceData
-              );
-              
-              if (success) {
-                setPendingChanges(false);
-                showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
-              } else {
-                setPendingChanges(true);
-                showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
-              }
-            } catch (e) {
-              console.error('同期エラー:', e);
-              setPendingChanges(true);
-              showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
+          // 同期開始を表示
+          setSyncProgress({ show: true, progress: 0, stage: '勤務データ更新中...' });
+          
+          // StorageServiceを使って一括保存
+          const success = await StorageService.saveData(
+            STORAGE_KEYS.ATTENDANCE_DATA, 
+            newAttendanceData,
+            (stage, progress) => {
+              setSyncProgress({ 
+                show: true, 
+                progress: progress, 
+                stage: `勤務データ: ${stage}` 
+              });
             }
+          );
+          
+          // 保存結果の処理
+          if (success) {
+            setPendingChanges(false);
+            setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
+            
+            setTimeout(() => {
+              setSyncProgress({ show: false, progress: 0, stage: '' });
+              showToast(`${cellsCount}件の勤務区分を一括更新しました`, "success");
+            }, 1000);
           } else {
-            showToast(`${selectedCells.length}件の勤務区分を一括更新しました (オフライン)`, "info");
+            setPendingChanges(true);
+            setSyncProgress({ show: false, progress: 0, stage: '' });
+            showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
           }
-          
-          setShowWorkTypeModal(false);
-          setSelectedCells([]);
-          setSelectedWorkType("");
-          
         } catch (error) {
           console.error('一括更新エラー:', error);
           showToast("勤務区分の一括更新に失敗しました", "error");
+          setSyncProgress({ show: false, progress: 0, stage: '' });
         }
         return;
       }
@@ -2269,75 +2273,76 @@ const CalendarView = React.memo(() => {
       // 通常の編集モード
       if (!selectedCell || !selectedWorkType) return;
       
+      // まずモーダルを閉じる - これが重要な変更
+      const cellCopy = {...selectedCell};
+      const workTypeCopy = selectedWorkType;
+      
+      setShowWorkTypeModal(false);
+      setSelectedCell(null);
+      setSelectedWorkType("");
+      
       try {
-        const dateStr = format(selectedCell.date, "yyyy-MM-dd");
+        const dateStr = format(cellCopy.date, "yyyy-MM-dd");
         
         // 既存データを除外して新しいデータを作成
         const newAttendanceData = attendanceData.filter(
           (record) =>
             !(
-              record.employeeId === selectedCell.employeeId.toString() &&
+              record.employeeId === cellCopy.employeeId.toString() &&
               record.date === dateStr
             )
         );
     
         const newRecord: AttendanceRecord = {
-          employeeId: selectedCell.employeeId.toString(),
+          employeeId: cellCopy.employeeId.toString(),
           date: dateStr,
-          workType: selectedWorkType,
+          workType: workTypeCopy,
           employeeName: employees.find(
-            (emp) => emp.id === selectedCell.employeeId
+            (emp) => emp.id === cellCopy.employeeId
           )?.name,
         };
     
         // 更新されたデータ
         const updatedData = [...newAttendanceData, newRecord];
         
-        // ローカルストレージとIndexedDBに保存
-        try {
-          localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(updatedData));
-          await IndexedDBService.saveAttendanceData(updatedData);
-          console.log('勤務区分更新: ローカルに保存しました');
-        } catch (e) {
-          console.error('ローカル保存エラー:', e);
-        }
-        
         // 状態を更新
         setAttendanceData(updatedData);
         
-        // オンライン時は即時同期
-        if (navigator.onLine) {
-          try {
-            const success = await StorageService.saveData(
-              STORAGE_KEYS.ATTENDANCE_DATA, 
-              updatedData
-            );
-            
-            if (success) {
-              setPendingChanges(false);
-              const employeeName = employees.find(emp => emp.id === selectedCell.employeeId)?.name || "";
-              showToast(`${employeeName}さんの勤務区分を登録しました`, "success");
-            } else {
-              setPendingChanges(true);
-              showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
-            }
-          } catch (e) {
-            console.error('同期エラー:', e);
-            setPendingChanges(true);
-            showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
+        // 同期開始を表示
+        setSyncProgress({ show: true, progress: 0, stage: '勤務データ更新中...' });
+        
+        // StorageServiceを使って一括保存
+        const success = await StorageService.saveData(
+          STORAGE_KEYS.ATTENDANCE_DATA, 
+          updatedData,
+          (stage, progress) => {
+            setSyncProgress({ 
+              show: true, 
+              progress: progress, 
+              stage: `勤務データ: ${stage}` 
+            });
           }
+        );
+        
+        // 保存結果の処理
+        if (success) {
+          setPendingChanges(false);
+          setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
+          
+          setTimeout(() => {
+            setSyncProgress({ show: false, progress: 0, stage: '' });
+            const employeeName = employees.find(emp => emp.id === cellCopy.employeeId)?.name || "";
+            showToast(`${employeeName}さんの勤務区分を登録しました`, "success");
+          }, 1000);
         } else {
-          const employeeName = employees.find(emp => emp.id === selectedCell.employeeId)?.name || "";
-          showToast(`${employeeName}さんの勤務区分を登録しました (オフライン)`, "info");
+          setPendingChanges(true);
+          setSyncProgress({ show: false, progress: 0, stage: '' });
+          showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
         }
-        
-        setShowWorkTypeModal(false);
-        setSelectedCell(null);
-        setSelectedWorkType("");
-        
       } catch (error) {
         console.error('勤務区分更新エラー:', error);
         showToast("勤務区分の更新に失敗しました", "error");
+        setSyncProgress({ show: false, progress: 0, stage: '' });
       }
     };
 
@@ -2728,27 +2733,36 @@ const CalendarView = React.memo(() => {
     const handleSubmit = async () => {
       if (!title.trim() || !selectedScheduleDate) return;
       
+      // まずモーダルを閉じる - これが重要な変更
+      const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
+      const employeeIds = isAllEmployees ? [] : [...selectedEmployees];
+      const titleCopy = title.trim();
+      const detailsCopy = details;
+      const colorCopy = color;
+      const isUpdate = selectedScheduleItem !== null;
+      const selectedItemCopy = selectedScheduleItem ? {...selectedScheduleItem} : null;
+      
+      // モーダルを閉じてUI状態をリセット
+      closeScheduleModal();
+      
       // 同期開始を表示
       setSyncProgress({ show: true, progress: 0, stage: '予定データ更新中...' });
-      
-      const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
-      const employeeIds = isAllEmployees ? [] : selectedEmployees;
       
       try {
         let newScheduleData;
         
         setSyncProgress({ show: true, progress: 10, stage: 'データ準備中...' });
         
-        if (selectedScheduleItem) {
+        if (isUpdate && selectedItemCopy) {
           // 既存の予定を更新
           newScheduleData = scheduleData.map(item => 
-            item.id === selectedScheduleItem.id 
+            item.id === selectedItemCopy.id 
               ? { 
                   ...item, 
-                  title, 
-                  details, 
-                  color, 
-                  employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
+                  title: titleCopy, 
+                  details: detailsCopy, 
+                  color: colorCopy, 
+                  employeeId: isAllEmployees ? "" : (employeeIds[0] || ""), // 後方互換性のため
                   employeeIds: employeeIds
                 }
               : item
@@ -2757,12 +2771,12 @@ const CalendarView = React.memo(() => {
           // 新規予定を追加
           const newScheduleItem: ScheduleItem = {
             id: Date.now().toString(),
-            employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
+            employeeId: isAllEmployees ? "" : (employeeIds[0] || ""), // 後方互換性のため
             employeeIds: employeeIds,
             date: dateStr,
-            title,
-            details,
-            color
+            title: titleCopy,
+            details: detailsCopy,
+            color: colorCopy
           };
           
           newScheduleData = [...scheduleData, newScheduleItem];
@@ -2791,7 +2805,7 @@ const CalendarView = React.memo(() => {
           setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
           setTimeout(() => {
             setSyncProgress({ show: false, progress: 0, stage: '' });
-            showToast(selectedScheduleItem ? "予定を更新しました" : "新しい予定を追加しました", "success");
+            showToast(isUpdate ? "予定を更新しました" : "新しい予定を追加しました", "success");
           }, 1000);
           
           // オンライン時は自動同期済みなのでフラグを下げる
@@ -2807,9 +2821,6 @@ const CalendarView = React.memo(() => {
           showToast("データの一部保存に失敗しました。同期ボタンで再同期してください", "warning");
           setPendingChanges(true);
         }
-        
-        closeScheduleModal();
-        
       } catch (error) {
         console.error('予定操作エラー:', error);
         showToast("予定の保存に失敗しました", "error");

@@ -75,25 +75,111 @@ export const FirebaseService = {
     }
   },
 
-  // 勤怠データの保存
+  // 勤怠データの保存（効率化版 - 差分更新）
   async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
     try {
-      const batch = writeBatch(db);
+      // バッチ処理の制限は500操作まで
+      const BATCH_SIZE = 450; 
+      let successCount = 0;
       
-      // 既存のデータを削除（全削除&再作成アプローチ）
+      // 固有IDを生成するための関数
+      const getRecordId = (record: AttendanceRecord): string => {
+        return `${record.employeeId}_${record.date}`;
+      };
+      
+      // 新しいデータのIDマップを作成
+      const newDataMap = new Map<string, AttendanceRecord>();
+      for (const record of data) {
+        const recordId = getRecordId(record);
+        newDataMap.set(recordId, record);
+      }
+      
+      // 既存のデータを取得
       const attendanceCol = collection(db, COLLECTIONS.ATTENDANCE);
-      const snapshot = await getDocs(attendanceCol);
-      snapshot.docs.forEach(document => {
-        batch.delete(document.ref);
+      const existingSnapshot = await getDocs(attendanceCol);
+      
+      // 既存データのマップを作成
+      const existingDataMap = new Map<string, { ref: any, data: any }>();
+      existingSnapshot.docs.forEach(doc => {
+        const data = doc.data() as AttendanceRecord;
+        if (data.employeeId && data.date) {
+          const recordId = getRecordId(data);
+          existingDataMap.set(recordId, { ref: doc.ref, data });
+        }
       });
       
-      // 新しいデータをバッチで保存
-      data.forEach((record, index) => {
-        const docRef = doc(db, COLLECTIONS.ATTENDANCE, `record_${index}`);
-        batch.set(docRef, record);
+      console.log(`既存レコード: ${existingDataMap.size}件, 新規レコード: ${newDataMap.size}件`);
+      
+      // 削除対象と追加・更新対象を特定
+      const toDelete: any[] = [];
+      const toUpsert: { id: string, data: AttendanceRecord }[] = [];
+      
+      // 削除対象を特定（既存にあって新規にないもの）
+      existingDataMap.forEach((item, id) => {
+        if (!newDataMap.has(id)) {
+          toDelete.push(item.ref);
+        } else {
+          // 内容が変更されているか確認
+          const newData = newDataMap.get(id)!;
+          
+          // 内容が異なる場合のみ更新対象に追加
+          if (JSON.stringify(item.data) !== JSON.stringify(newData)) {
+            toUpsert.push({ id, data: newData });
+          }
+          
+          // 処理済みなので削除
+          newDataMap.delete(id);
+        }
       });
       
-      await batch.commit();
+      // 残りは全て新規追加対象
+      newDataMap.forEach((record, id) => {
+        toUpsert.push({ id, data: record });
+      });
+      
+      console.log(`処理内訳: 削除=${toDelete.length}件, 更新/追加=${toUpsert.length}件`);
+      
+      // バッチに分けて処理する
+      let batchCount = 0;
+      let currentBatch = writeBatch(db);
+      let operationCount = 0;
+      
+      // 1. 削除処理
+      for (const ref of toDelete) {
+        currentBatch.delete(ref);
+        operationCount++;
+        
+        if (operationCount >= BATCH_SIZE) {
+          await currentBatch.commit();
+          batchCount++;
+          currentBatch = writeBatch(db);
+          operationCount = 0;
+        }
+      }
+      
+      // 2. 追加・更新処理
+      for (const { id, data } of toUpsert) {
+        // docIdはemployeeId_dateの形式で一意になる
+        const docRef = doc(db, COLLECTIONS.ATTENDANCE, id);
+        currentBatch.set(docRef, data);
+        operationCount++;
+        successCount++;
+        
+        if (operationCount >= BATCH_SIZE) {
+          await currentBatch.commit();
+          batchCount++;
+          currentBatch = writeBatch(db);
+          operationCount = 0;
+        }
+      }
+      
+      // 残りの操作をコミット
+      if (operationCount > 0) {
+        await currentBatch.commit();
+        batchCount++;
+      }
+      
+      console.log(`勤怠データ同期完了: ${batchCount}バッチ, ${successCount}レコード処理`);
       return true;
     } catch (error) {
       console.error("Error saving attendance data:", error);
@@ -135,25 +221,96 @@ export const FirebaseService = {
     }
   },
 
-  // 予定データの保存
+  // 予定データの保存（効率化版 - 差分更新）
   async saveScheduleData(data: ScheduleItem[]): Promise<boolean> {
     try {
-      const batch = writeBatch(db);
+      // バッチ処理の制限は500操作まで
+      const BATCH_SIZE = 450;
+      let successCount = 0;
       
-      // 既存のデータを削除
+      // 新しいデータのIDマップを作成
+      const newDataMap = new Map<string, ScheduleItem>();
+      data.forEach(item => {
+        newDataMap.set(item.id, item);
+      });
+      
+      // 既存のデータを取得
       const scheduleCol = collection(db, COLLECTIONS.SCHEDULE);
-      const snapshot = await getDocs(scheduleCol);
-      snapshot.docs.forEach(document => {
-        batch.delete(document.ref);
+      const existingSnapshot = await getDocs(scheduleCol);
+      
+      // 削除対象と追加・更新対象を特定
+      const toDelete: any[] = [];
+      const toUpsert: ScheduleItem[] = [];
+      
+      // 既存データの処理
+      existingSnapshot.docs.forEach(doc => {
+        const itemId = doc.id;
+        const existingData = doc.data() as ScheduleItem;
+        
+        if (!newDataMap.has(itemId)) {
+          // 新しいデータに存在しないので削除
+          toDelete.push(doc.ref);
+        } else {
+          // 内容に変更があるか確認
+          const newData = newDataMap.get(itemId)!;
+          
+          // 内容が異なる場合のみ更新対象に追加
+          if (JSON.stringify(existingData) !== JSON.stringify(newData)) {
+            toUpsert.push(newData);
+          }
+          
+          // 処理済みなので削除
+          newDataMap.delete(itemId);
+        }
       });
       
-      // 新しいデータをバッチで保存
-      data.forEach((item) => {
+      // 残りは全て新規追加
+      newDataMap.forEach(item => {
+        toUpsert.push(item);
+      });
+      
+      console.log(`予定処理内訳: 削除=${toDelete.length}件, 更新/追加=${toUpsert.length}件`);
+      
+      // バッチ処理
+      let batchCount = 0;
+      let currentBatch = writeBatch(db);
+      let operationCount = 0;
+      
+      // 1. 削除処理
+      for (const ref of toDelete) {
+        currentBatch.delete(ref);
+        operationCount++;
+        
+        if (operationCount >= BATCH_SIZE) {
+          await currentBatch.commit();
+          batchCount++;
+          currentBatch = writeBatch(db);
+          operationCount = 0;
+        }
+      }
+      
+      // 2. 追加・更新処理
+      for (const item of toUpsert) {
         const docRef = doc(db, COLLECTIONS.SCHEDULE, item.id);
-        batch.set(docRef, item);
-      });
+        currentBatch.set(docRef, item);
+        operationCount++;
+        successCount++;
+        
+        if (operationCount >= BATCH_SIZE) {
+          await currentBatch.commit();
+          batchCount++;
+          currentBatch = writeBatch(db);
+          operationCount = 0;
+        }
+      }
       
-      await batch.commit();
+      // 残りの操作をコミット
+      if (operationCount > 0) {
+        await currentBatch.commit();
+        batchCount++;
+      }
+      
+      console.log(`予定データ同期完了: ${batchCount}バッチ, ${successCount}レコード処理`);
       return true;
     } catch (error) {
       console.error("Error saving schedule data:", error);
