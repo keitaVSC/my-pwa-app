@@ -708,40 +708,40 @@ useEffect(() => {
     
     const yearMonth = format(currentDate, "yyyy-MM");
     
-  // 日付ごとに最新の勤務区分だけを取得するためのマップ
-  const dateWorkTypeMap = new Map<string, string>();
-  
-  // 同じ日付のデータが複数ある場合、後のデータ（おそらく最新）で上書き
-  attendanceData.forEach(record => {
-    if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
-      dateWorkTypeMap.set(record.date, record.workType);
-    }
-  });
-  
-  // マップに整理された（重複のない）データでスコア計算
-  dateWorkTypeMap.forEach((workType, dateStr) => {
-    if (workType === '休') {
-      // 日付文字列から Date オブジェクトを作成
-      const recordDate = new Date(dateStr);
-      // 土曜日の場合は0.5点、それ以外の日は1.0点
-      if (isSaturday(recordDate)) {
-        score += 0.5;
-      } else {
-        score += 1.0;
-      }
-    } else if (workType === 'A' || workType === 'P' || workType === 'Ap') {
-      score += 0.5;
-    }
-  });
-  
-  // デバッグ情報を出力（必要に応じてコメントアウト）
-  if (employeeId === 19) { // 中谷さんのID
-    console.log(`${employees.find(emp => emp.id === employeeId)?.name}の集計:`, 
-                `元データ数=${attendanceData.filter(r => r.employeeId === employeeId.toString() && r.date.startsWith(yearMonth)).length}`,
-                `重複除去後=${dateWorkTypeMap.size}`,
-                `スコア=${score}`);
-  }
+    // 日付ごとに最新の勤務区分だけを取得するためのマップ
+    const dateWorkTypeMap = new Map<string, string>();
     
+    // 同じ日付のデータが複数ある場合、後のデータ（おそらく最新）で上書き
+    attendanceData.forEach(record => {
+      if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
+        dateWorkTypeMap.set(record.date, record.workType);
+      }
+    });
+    
+    // マップに整理された（重複のない）データでスコア計算
+    dateWorkTypeMap.forEach((workType, dateStr) => {
+      if (workType === '休') {
+        // 日付文字列から Date オブジェクトを作成
+        const recordDate = new Date(dateStr);
+        // 土曜日の場合は0.5点、それ以外の日は1.0点
+        if (isSaturday(recordDate)) {
+          score += 0.5;
+        } else {
+          score += 1.0;
+        }
+      } else if (workType === 'A' || workType === 'P' || workType === 'Ap') {
+        score += 0.5;
+      }
+    });
+    
+    // デバッグ情報を出力（必要に応じてコメントアウト）
+    if (employeeId === 19) { // 中谷さんのID
+      console.log(`${employees.find(emp => emp.id === employeeId)?.name}の集計:`, 
+                  `元データ数=${attendanceData.filter(r => r.employeeId === employeeId.toString() && r.date.startsWith(yearMonth)).length}`,
+                  `重複除去後=${dateWorkTypeMap.size}`,
+                  `スコア=${score}`);
+    }
+      
     return score;
   };
 
@@ -1181,22 +1181,25 @@ const updateAttendanceRecord = async (employeeId: number, date: Date, workType: 
   }
 };
 
-// 利用可能な月リストを生成（過去24ヶ月〜将来3ヶ月まで）
-const getAvailableMonths = (): Date[] => {
-  const months: Date[] = [];
-  const now = new Date();
+// 利用可能な年リストを生成（2025年〜2045年）
+const getAvailableYears = (): number[] => {
+  const years: number[] = [];
+  const startYear = 2025;
+  const endYear = 2045;
   
-  // 過去24ヶ月
-  for (let i = 24; i > 0; i--) {
-    months.push(subMonths(startOfMonth(now), i));
+  for (let year = startYear; year <= endYear; year++) {
+    years.push(year);
   }
   
-  // 現在の月
-  months.push(startOfMonth(now));
+  return years;
+};
+
+// 利用可能な月リストを生成（1月〜12月）
+const getAvailableMonthsInYear = (): { value: number; label: string }[] => {
+  const months: { value: number; label: string }[] = [];
   
-  // 将来3ヶ月
-  for (let i = 1; i <= 3; i++) {
-    months.push(addMonths(startOfMonth(now), i));
+  for (let month = 1; month <= 12; month++) {
+    months.push({ value: month, label: `${month}月` });
   }
   
   return months;
@@ -3073,7 +3076,16 @@ const CalendarView = React.memo(() => {
 
   // 月選択モーダル
   const MonthSelectionModal = () => {
-    const availableMonths = getAvailableMonths();
+    const [selectedYear, setSelectedYear] = useState<number>(selectedMonth.getFullYear());
+    const [selectedMonthNumber, setSelectedMonthNumber] = useState<number>(selectedMonth.getMonth() + 1);
+    
+    const availableYears = getAvailableYears();
+    const availableMonths = getAvailableMonthsInYear();
+    
+    // 選択した年月で selectedMonth を更新
+    useEffect(() => {
+      setSelectedMonth(new Date(selectedYear, selectedMonthNumber - 1, 1));
+    }, [selectedYear, selectedMonthNumber]);
     
     const handleAction = () => {
       if (monthSelectionMode === "export") {
@@ -3092,22 +3104,32 @@ const CalendarView = React.memo(() => {
         <div className="p-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              月を選択してください
+              年月を選択してください
             </label>
-            <select
-              value={format(selectedMonth, "yyyy-MM")}
-              onChange={(e) => {
-                const [year, month] = e.target.value.split("-").map(Number);
-                setSelectedMonth(new Date(year, month - 1, 1));
-              }}
-              className="w-full p-2 border rounded"
-            >
-              {availableMonths.map((month) => (
-                <option key={format(month, "yyyy-MM")} value={format(month, "yyyy-MM")}>
-                  {formatMonthDisplay(month)}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
+                className="w-1/2 p-2 border rounded"
+              >
+                {availableYears.map((year) => (
+                  <option key={year} value={year}>
+                    {year}年
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selectedMonthNumber}
+                onChange={(e) => setSelectedMonthNumber(Number(e.target.value))}
+                className="w-1/2 p-2 border rounded"
+              >
+                {availableMonths.map((month) => (
+                  <option key={month.value} value={month.value}>
+                    {month.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           
           {monthSelectionMode === "export" ? (
