@@ -719,7 +719,7 @@ useEffect(() => {
           } else {
             score += 1.0;
           }
-        } else if (record.workType === 'A' || record.workType === 'P') {
+        } else if (record.workType === 'A' || record.workType === 'P' || record.workType === 'Ap') {
           score += 0.5;
         }
       }
@@ -2055,7 +2055,7 @@ const CalendarView = React.memo(() => {
                     ? "calendar-cell-current"
                     : "calendar-cell-other"
                 } ${getCellBackgroundColor(date).text} cursor-pointer ${
-                  isBulkEditMode && isAdminMode && isSelected ? 'bg-blue-100 border-2 border-blue-500' : ''
+                  isSelected ? 'bg-blue-100 border-2 border-blue-500' : ''
                 } ${
                   isCurrentMonth && shouldShowWarning(date) ? "bg-warning-red" : ""
                 }`}
