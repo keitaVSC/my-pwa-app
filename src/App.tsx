@@ -566,8 +566,7 @@ useEffect(() => {
     }
   }, [toast]);
 
-  // 修正: AttendanceAppコンポーネント内に追加するuseEffect
-// この部分をAttendanceAppコンポーネント内のuseEffectブロックの一つとして追加してください
+// デバッグツールの初期化
 useEffect(() => {
   // デバッグツールの初期化（開発環境のみ）
   if (process.env.NODE_ENV === 'development') {
@@ -643,7 +642,7 @@ useEffect(() => {
     
     console.log('デバッグツールが利用可能: window.appDebugTools');
   }
-}, []); // 空の依存配列でコンポーネントのマウント時に1度だけ実行
+}, []);
 
   //---------------------------------------------------------------
   // ヘルパー関数
@@ -1271,47 +1270,33 @@ const resetMonthData = (month: Date = currentDate) => {
 };
 
 // 予定の削除
+// 予定の削除（改善版）
 const deleteSchedule = (scheduleId: string) => {
   showConfirm("この予定を削除しますか？", async () => {
     try {
-      const newScheduleData = scheduleData.filter(item => item.id !== scheduleId);
+      console.log(`予定ID: ${scheduleId} の削除処理を開始します`);
       
-      // ローカルストレージとIndexedDBに保存
-      try {
-        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
-        await IndexedDBService.saveScheduleData(newScheduleData);
-        console.log('予定削除: ローカルに保存しました');
-      } catch (e) {
-        console.error('ローカル保存エラー:', e);
-      }
+      // 専用の削除メソッドを使用して全ストレージ層で削除
+      const success = await StorageService.deleteScheduleItem(scheduleId);
       
-      // 状態を更新
-      setScheduleData(newScheduleData);
-      
-      // オンライン時は即時同期
-      if (navigator.onLine) {
-        try {
-          const success = await StorageService.saveData(
-            STORAGE_KEYS.SCHEDULE_DATA, 
-            newScheduleData
-          );
-          
-          if (success) {
-            setPendingChanges(false);
-            showToast("予定を削除しました", "info");
-          } else {
-            setPendingChanges(true);
-            showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
-          }
-        } catch (e) {
-          console.error('同期エラー:', e);
+      if (success) {
+        // 削除が成功したら状態を更新
+        const newScheduleData = scheduleData.filter(item => item.id !== scheduleId);
+        setScheduleData(newScheduleData);
+        setPendingChanges(false);
+        showToast("予定を削除しました", "success");
+        console.log(`予定ID: ${scheduleId} の削除が完了しました`);
+      } else {
+        // 削除失敗時
+        if (navigator.onLine) {
           setPendingChanges(true);
           showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
+        } else {
+          showToast("予定の削除に失敗しました", "error");
         }
-      } else {
-        showToast("予定を削除しました (オフライン)", "info");
       }
       
+      // モーダルを閉じる
       setShowScheduleModal(false);
       setSelectedScheduleItem(null);
       
@@ -2285,60 +2270,91 @@ const CalendarView = React.memo(() => {
     };
 
     const handleDelete = () => {
+      // 一括編集モードの場合
       if (isBulkEditMode && isAdminMode && selectedCells.length > 0) {
-        showConfirm(`選択された${selectedCells.length}件の勤務区分を削除しますか？`, () => {
-          const newAttendanceData = attendanceData.filter(record => {
-            return !selectedCells.some(cell => 
-              cell.employeeId.toString() === record.employeeId && 
-              format(cell.date, "yyyy-MM-dd") === record.date
-            );
-          });
-          
-          // ローカルストレージに直接保存
+        showConfirm(`選択された${selectedCells.length}件の勤務区分を削除しますか？`, async () => {
           try {
-            localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
-          } catch (e) {
-            console.error('Failed to save attendance data to localStorage:', e);
+            console.log(`${selectedCells.length}件の勤務区分の一括削除を開始`);
+            
+            // 削除成功した件数をカウント
+            let successCount = 0;
+            
+            // 各セルの勤務データを個別に削除
+            for (const cell of selectedCells) {
+              const dateStr = format(cell.date, "yyyy-MM-dd");
+              const success = await StorageService.deleteAttendanceRecord(
+                cell.employeeId.toString(), 
+                dateStr
+              );
+              if (success) successCount++;
+            }
+            
+            // 削除後のデータを取得
+            const newAttendanceData = attendanceData.filter(record => {
+              return !selectedCells.some(cell => 
+                cell.employeeId.toString() === record.employeeId && 
+                format(cell.date, "yyyy-MM-dd") === record.date
+              );
+            });
+            
+            // 状態を更新
+            setAttendanceData(newAttendanceData);
+            setShowWorkTypeModal(false);
+            setSelectedCells([]);
+            
+            // 成功メッセージを表示
+            if (successCount === selectedCells.length) {
+              showToast(`${successCount}件の勤務区分を削除しました`, "success");
+              setPendingChanges(false);
+            } else {
+              showToast(`${successCount}/${selectedCells.length}件の勤務区分を削除しました`, "warning");
+              setPendingChanges(true);
+            }
+          } catch (error) {
+            console.error('一括削除エラー:', error);
+            showToast("勤務区分の削除に失敗しました", "error");
           }
-          
-          setAttendanceData(newAttendanceData);
-          setShowWorkTypeModal(false);
-          setSelectedCells([]);
-          
-          // オンラインなら同期処理を実行
-          if (navigator.onLine) {
-            syncChanges();
-          }
-          
-          showToast(`${selectedCells.length}件の勤務区分を削除しました`, "info");
         });
         return;
       }
       
+      // 単一勤務区分の削除
       if (!selectedCell) return;
       
       const dateStr = format(selectedCell.date, "yyyy-MM-dd");
-      const newAttendanceData = attendanceData.filter(
-        record => !(record.employeeId === selectedCell.employeeId.toString() && record.date === dateStr)
-      );
       
-      // ローカルストレージに直接保存
-      try {
-        localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
-      } catch (e) {
-        console.error('Failed to save attendance data to localStorage:', e);
-      }
-      
-      setAttendanceData(newAttendanceData);
-      setShowWorkTypeModal(false);
-      setSelectedCell(null);
-      
-      // オンラインなら同期処理を実行
-      if (navigator.onLine) {
-        syncChanges();
-      }
-      
-      showToast("勤務区分を削除しました", "info");
+      showConfirm("この勤務区分を削除しますか？", async () => {
+        try {
+          console.log(`勤務区分削除: 従業員ID=${selectedCell.employeeId}, 日付=${dateStr}`);
+          
+          // 専用の削除メソッドを使用
+          const success = await StorageService.deleteAttendanceRecord(
+            selectedCell.employeeId.toString(), 
+            dateStr
+          );
+          
+          if (success) {
+            // 状態を更新
+            const newAttendanceData = attendanceData.filter(
+              record => !(record.employeeId === selectedCell.employeeId.toString() && record.date === dateStr)
+            );
+            
+            setAttendanceData(newAttendanceData);
+            setPendingChanges(false);
+            showToast("勤務区分を削除しました", "success");
+          } else {
+            showToast("勤務区分の削除に問題が発生しました", "warning");
+            setPendingChanges(true);
+          }
+          
+          setShowWorkTypeModal(false);
+          setSelectedCell(null);
+          
+        } catch (error) {
+          console.error('勤務区分削除エラー:', error);
+          showToast("勤務区分の削除に失敗しました", "error");
+        }
+      });
     };
 
     return (

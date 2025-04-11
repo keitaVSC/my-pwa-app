@@ -449,7 +449,117 @@ export const StorageService = {
       };
     }
   },
+ 
+// スケジュールアイテムの削除処理
+async deleteScheduleItem(id: string): Promise<boolean> {
+  console.log(`スケジュールID: ${id} の削除処理を開始`);
   
+  let success = false;
+  
+  // 1. 現在のデータを取得
+  let scheduleData = this.getData<any[]>(STORAGE_KEYS.SCHEDULE_DATA, []);
+  
+  // 2. 対象のIDのスケジュールを除外
+  const originalLength = scheduleData.length;
+  scheduleData = scheduleData.filter(item => item.id !== id);
+  
+  if (scheduleData.length === originalLength) {
+    console.warn(`⚠ スケジュールID: ${id} は存在しません`);
+    return false;
+  }
+  
+  // 3. ローカルストレージに保存
+  try {
+    localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
+    console.log(`✓ スケジュールID: ${id} をローカルストレージから削除`);
+    success = true;
+  } catch (error) {
+    console.error(`✗ ローカルストレージでのスケジュール削除エラー:`, error);
+  }
+  
+  // 4. IndexedDBに保存
+  if (USE_INDEXED_DB) {
+    try {
+      await IndexedDBService.saveScheduleData(scheduleData);
+      console.log(`✓ スケジュールID: ${id} をIndexedDBから削除`);
+      success = true;
+    } catch (error) {
+      console.error(`✗ IndexedDBでのスケジュール削除エラー:`, error);
+    }
+  }
+  
+  // 5. Firebaseに保存（オンライン時のみ）
+  if (USE_FIREBASE && navigator.onLine) {
+    try {
+      await FirebaseService.saveScheduleData(scheduleData);
+      console.log(`✓ スケジュールID: ${id} をFirebaseから削除`);
+      success = true;
+    } catch (error) {
+      console.error(`✗ Firebaseでのスケジュール削除エラー:`, error);
+    }
+  }
+  
+  console.log(`スケジュール削除処理完了: ${success ? '成功' : '失敗'}`);
+  return success;
+},
+
+// 勤務データの削除処理
+async deleteAttendanceRecord(employeeId: string, date: string): Promise<boolean> {
+  console.log(`勤務データの削除処理を開始: 従業員ID=${employeeId}, 日付=${date}`);
+  
+  let success = false;
+  
+  // 1. 現在のデータを取得
+  let attendanceData = this.getData<any[]>(STORAGE_KEYS.ATTENDANCE_DATA, []);
+  
+  // 2. 対象のレコードを除外
+  const originalLength = attendanceData.length;
+  attendanceData = attendanceData.filter(
+    record => !(record.employeeId === employeeId && record.date === date)
+  );
+  
+  if (attendanceData.length === originalLength) {
+    console.warn(`⚠ 対象の勤務レコードが存在しません: 従業員ID=${employeeId}, 日付=${date}`);
+    return false;
+  }
+  
+  // 3. ローカルストレージに保存
+  try {
+    localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
+    console.log(`✓ 勤務レコードをローカルストレージから削除`);
+    success = true;
+  } catch (error) {
+    console.error(`✗ ローカルストレージでの勤務レコード削除エラー:`, error);
+  }
+  
+  // 4. IndexedDBに保存
+  if (USE_INDEXED_DB) {
+    try {
+      await IndexedDBService.saveAttendanceData(attendanceData);
+      console.log(`✓ 勤務レコードをIndexedDBから削除`);
+      success = true;
+    } catch (error) {
+      console.error(`✗ IndexedDBでの勤務レコード削除エラー:`, error);
+    }
+  }
+  
+  // 5. Firebaseに保存（オンライン時のみ）
+  if (USE_FIREBASE && navigator.onLine) {
+    try {
+      await FirebaseService.saveAttendanceData(attendanceData);
+      console.log(`✓ 勤務レコードをFirebaseから削除`);
+      success = true;
+    } catch (error) {
+      console.error(`✗ Firebaseでの勤務レコード削除エラー:`, error);
+    }
+  }
+  
+  console.log(`勤務レコード削除処理完了: ${success ? '成功' : '失敗'}`);
+  return success;
+},
+
+  // バイト数のフォーマット
+
   // バイト数のフォーマット
   formatBytes(bytes: number): string {
     if (bytes === 0) return "0 Bytes";
