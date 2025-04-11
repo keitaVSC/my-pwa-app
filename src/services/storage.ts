@@ -558,9 +558,7 @@ async deleteAttendanceRecord(employeeId: string, date: string): Promise<boolean>
   return success;
 },
 
-  // バイト数のフォーマット
-
-  // バイト数のフォーマット
+// バイト数のフォーマット
   formatBytes(bytes: number): string {
     if (bytes === 0) return "0 Bytes";
     
