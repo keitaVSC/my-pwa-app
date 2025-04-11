@@ -1117,8 +1117,21 @@ const updateAttendanceRecord = async (employeeId: number, date: Date, workType: 
     const dateStr = format(date, "yyyy-MM-dd");
     const employeeName = employees.find(emp => emp.id === employeeId)?.name;
     
-    // 既存データを除外
-    const newAttendanceData = attendanceData.filter(
+    // 同じ従業員の同じ日付のデータを物理的に削除し、重複を防止
+    // この部分は重要: データベースに保存する前に重複を確実に除外
+    let newAttendanceData = [...attendanceData];
+    
+    // ステップ1: 既存のデータをフィルタリングして重複候補をログに記録（デバッグ用）
+    const duplicates = attendanceData.filter(
+      record => record.employeeId === employeeId.toString() && record.date === dateStr
+    );
+    
+    if (duplicates.length > 0) {
+      console.log(`重複候補データを削除: 従業員ID=${employeeId}, 日付=${dateStr}, 件数=${duplicates.length}`);
+    }
+    
+    // ステップ2: 重複データを除外した新しい配列を作成
+    newAttendanceData = attendanceData.filter(
       record => !(record.employeeId === employeeId.toString() && record.date === dateStr)
     );
     
@@ -1138,6 +1151,23 @@ const updateAttendanceRecord = async (employeeId: number, date: Date, workType: 
     
     // 一貫したデータ保存フローを使用
     setSyncProgress({ show: true, progress: 20, stage: 'データをストレージに保存中...' });
+    
+    // データ保存前に重複がないことを確認
+    const duplicateCheck = newAttendanceData.filter(
+      record => record.employeeId === employeeId.toString() && record.date === dateStr
+    );
+    
+    if (duplicateCheck.length > 1) {
+      console.warn(`警告: 保存データに重複が見つかりました: ${duplicateCheck.length}件`);
+      // 重複は最新のものだけを残す（配列の最後の要素）
+      const latestRecord = duplicateCheck[duplicateCheck.length - 1];
+      newAttendanceData = newAttendanceData.filter(
+        record => !(record.employeeId === employeeId.toString() && record.date === dateStr)
+      );
+      if (latestRecord) {
+        newAttendanceData.push(latestRecord);
+      }
+    }
     
     // StorageServiceを使って保存 (すべてのストレージに一貫して保存)
     const success = await StorageService.saveData(
@@ -2223,37 +2253,67 @@ const CalendarView = React.memo(() => {
         setSelectedWorkType("");
         
         try {
-          const newAttendanceData = [...attendanceData];
+          // 新しいデータをビルドする前に重複チェック用のマップを作成
+          const recordMap = new Map<string, AttendanceRecord>();
           
-          // コピーした配列を使用
+          // 既存データをマップに入れる（同じ従業員と日付の場合は上書き）
+          attendanceData.forEach(record => {
+            const key = `${record.employeeId}_${record.date}`;
+            recordMap.set(key, record);
+          });
+          
+          // 選択したセルの勤務区分を更新または追加
           cellsCopy.forEach(cell => {
             const dateStr = format(cell.date, "yyyy-MM-dd");
+            const key = `${cell.employeeId}_${dateStr}`;
+            const employeeName = employees.find(emp => emp.id === cell.employeeId)?.name;
             
-            // 既存のレコードを除外
-            const recordIndex = newAttendanceData.findIndex(
-              record => record.employeeId === cell.employeeId.toString() && record.date === dateStr
-            );
-            
-            if (recordIndex !== -1) {
-              newAttendanceData.splice(recordIndex, 1);
-            }
-            
-            // 新しいレコードを追加
+            // 新しいレコードを作成
             const newRecord: AttendanceRecord = {
               employeeId: cell.employeeId.toString(),
               date: dateStr,
               workType: workTypeCopy,
-              employeeName: employees.find(emp => emp.id === cell.employeeId)?.name,
+              employeeName
             };
             
-            newAttendanceData.push(newRecord);
+            // 既存レコードを上書き（重複を防止）
+            recordMap.set(key, newRecord);
           });
+          
+          // マップから配列に変換
+          const newAttendanceData = Array.from(recordMap.values());
           
           // 状態を更新
           setAttendanceData(newAttendanceData);
           
           // 同期開始を表示
           setSyncProgress({ show: true, progress: 0, stage: '勤務データ更新中...' });
+          
+          // 重複チェック
+          const employeeIdDatePairs = new Set<string>();
+          const duplicates = [];
+          
+          for (const record of newAttendanceData) {
+            const key = `${record.employeeId}_${record.date}`;
+            if (employeeIdDatePairs.has(key)) {
+              duplicates.push(key);
+            } else {
+              employeeIdDatePairs.add(key);
+            }
+          }
+          
+          if (duplicates.length > 0) {
+            console.warn(`警告: 保存前の重複チェックで${duplicates.length}件の重複を検出`, duplicates);
+            // 重複を除外した新しい配列を作成（最後に見つかったレコードを保持）
+            const uniqueRecords: {[key: string]: AttendanceRecord} = {};
+            for (const record of newAttendanceData) {
+              const key = `${record.employeeId}_${record.date}`;
+              uniqueRecords[key] = record;
+            }
+            // オブジェクトから配列に戻す
+            newAttendanceData.length = 0;
+            Object.values(uniqueRecords).forEach(record => newAttendanceData.push(record));
+          }
           
           // StorageServiceを使って一括保存
           const success = await StorageService.saveData(
