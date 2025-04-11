@@ -19,13 +19,22 @@ const USE_INDEXED_DB = true; // IndexedDBを使用するかどうか
 // ストレージサービス
 export const StorageService = {
   // データ保存 - 優先順位: 1. LocalStorage (常に) 2. IndexedDB (有効時) 3. Firebase (オンライン時)
-  async saveData<T>(key: string, data: T): Promise<boolean> {
+  async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
+    let totalSteps = 1; // ローカルストレージは常に使用
+    if (USE_INDEXED_DB) totalSteps++;
+    if (USE_FIREBASE && navigator.onLine) totalSteps++;
+    
+    let currentStep = 0;
+    
     // 常に最初にローカルストレージに保存を試みる (最も高速なアクセス)
     let localStorageSuccess = false;
     try {
       localStorage.setItem(key, JSON.stringify(data));
       localStorageSuccess = true;
       console.log(`✓ ${key}をローカルストレージに保存しました`);
+      
+      currentStep++;
+      if (progressCallback) progressCallback('localStorage', (currentStep / totalSteps) * 100);
     } catch (error) {
       console.error(`✗ ローカルストレージへの保存に失敗しました: ${key}`, error);
     }
@@ -34,21 +43,23 @@ export const StorageService = {
     let indexedDBSuccess = false;
     if (USE_INDEXED_DB) {
       try {
+        if (progressCallback) progressCallback('IndexedDB処理中...', (currentStep / totalSteps) * 100);
+        
         // 主要データはIndexedDBにも保存
         if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
-          await IndexedDBService.saveAttendanceData(data as any);
-          indexedDBSuccess = true;
+          indexedDBSuccess = await IndexedDBService.saveAttendanceData(data as any);
           console.log(`✓ ${key}をIndexedDBに保存しました`);
         } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
-          await IndexedDBService.saveScheduleData(data as any);
-          indexedDBSuccess = true;
+          indexedDBSuccess = await IndexedDBService.saveScheduleData(data as any);
           console.log(`✓ ${key}をIndexedDBに保存しました`);
         } else {
           // 設定データはシンプルなkey-valueとして保存
-          await IndexedDBService.saveSetting(key, data);
-          indexedDBSuccess = true;
+          indexedDBSuccess = await IndexedDBService.saveSetting(key, data);
           console.log(`✓ ${key}を設定としてIndexedDBに保存しました`);
         }
+        
+        currentStep++;
+        if (progressCallback) progressCallback('IndexedDB', (currentStep / totalSteps) * 100);
       } catch (error) {
         console.error(`✗ IndexedDBへの保存に失敗しました: ${key}`, error);
       }
@@ -58,6 +69,8 @@ export const StorageService = {
     let firebaseSuccess = false;
     if (USE_FIREBASE && navigator.onLine) {
       try {
+        if (progressCallback) progressCallback('Firebase接続中...', (currentStep / totalSteps) * 100);
+        
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
             await FirebaseService.saveAttendanceData(data as any);
@@ -78,10 +91,16 @@ export const StorageService = {
             console.log(`✓ ${key}をFirebase設定に保存しました`);
             break;
         }
+        
+        currentStep++;
+        if (progressCallback) progressCallback('Firebase', (currentStep / totalSteps) * 100);
       } catch (error) {
         console.error(`✗ Firebaseへの保存に失敗しました: ${key}`, error);
       }
     }
+    
+    // 最終ステップでプログレスを100%に設定
+    if (progressCallback) progressCallback('完了', 100);
     
     // すべてのストレージ操作が失敗した場合のみfalseを返す
     return localStorageSuccess || indexedDBSuccess || firebaseSuccess;
@@ -451,13 +470,13 @@ export const StorageService = {
   },
  
 // スケジュールアイテムの削除処理
-async deleteScheduleItem(id: string): Promise<boolean> {
+async deleteScheduleItem(id: string, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
   console.log(`スケジュールID: ${id} の削除処理を開始`);
   
-  let success = false;
+  if (progressCallback) progressCallback('削除処理開始', 10);
   
   // 1. 現在のデータを取得
-  let scheduleData = this.getData<any[]>(STORAGE_KEYS.SCHEDULE_DATA, []);
+  let scheduleData = await this.getDataAsync<any[]>(STORAGE_KEYS.SCHEDULE_DATA, []);
   
   // 2. 対象のIDのスケジュールを除外
   const originalLength = scheduleData.length;
@@ -468,49 +487,33 @@ async deleteScheduleItem(id: string): Promise<boolean> {
     return false;
   }
   
-  // 3. ローカルストレージに保存
+  if (progressCallback) progressCallback('データフィルタリング完了', 30);
+  
+  // 3. すべてのストレージに一貫して保存
   try {
-    localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
-    console.log(`✓ スケジュールID: ${id} をローカルストレージから削除`);
-    success = true;
+    const success = await this.saveData(STORAGE_KEYS.SCHEDULE_DATA, scheduleData, 
+      (stage, progress) => {
+        // 進捗30%〜100%の間で同期作業の進捗を反映
+        if (progressCallback) progressCallback(stage, 30 + (progress * 0.7));
+      }
+    );
+    
+    console.log(`スケジュール削除処理完了: ${success ? '成功' : '失敗'}`);
+    return success;
   } catch (error) {
-    console.error(`✗ ローカルストレージでのスケジュール削除エラー:`, error);
+    console.error(`✗ スケジュール削除処理エラー:`, error);
+    return false;
   }
-  
-  // 4. IndexedDBに保存
-  if (USE_INDEXED_DB) {
-    try {
-      await IndexedDBService.saveScheduleData(scheduleData);
-      console.log(`✓ スケジュールID: ${id} をIndexedDBから削除`);
-      success = true;
-    } catch (error) {
-      console.error(`✗ IndexedDBでのスケジュール削除エラー:`, error);
-    }
-  }
-  
-  // 5. Firebaseに保存（オンライン時のみ）
-  if (USE_FIREBASE && navigator.onLine) {
-    try {
-      await FirebaseService.saveScheduleData(scheduleData);
-      console.log(`✓ スケジュールID: ${id} をFirebaseから削除`);
-      success = true;
-    } catch (error) {
-      console.error(`✗ Firebaseでのスケジュール削除エラー:`, error);
-    }
-  }
-  
-  console.log(`スケジュール削除処理完了: ${success ? '成功' : '失敗'}`);
-  return success;
 },
 
 // 勤務データの削除処理
-async deleteAttendanceRecord(employeeId: string, date: string): Promise<boolean> {
+async deleteAttendanceRecord(employeeId: string, date: string, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
   console.log(`勤務データの削除処理を開始: 従業員ID=${employeeId}, 日付=${date}`);
   
-  let success = false;
+  if (progressCallback) progressCallback('削除処理開始', 10);
   
-  // 1. 現在のデータを取得
-  let attendanceData = this.getData<any[]>(STORAGE_KEYS.ATTENDANCE_DATA, []);
+  // 1. 現在のデータを取得 - 非同期で確実に最新データを取得
+  let attendanceData = await this.getDataAsync<any[]>(STORAGE_KEYS.ATTENDANCE_DATA, []);
   
   // 2. 対象のレコードを除外
   const originalLength = attendanceData.length;
@@ -523,39 +526,23 @@ async deleteAttendanceRecord(employeeId: string, date: string): Promise<boolean>
     return false;
   }
   
-  // 3. ローカルストレージに保存
+  if (progressCallback) progressCallback('データフィルタリング完了', 30);
+  
+  // 3. すべてのストレージに一貫して保存
   try {
-    localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(attendanceData));
-    console.log(`✓ 勤務レコードをローカルストレージから削除`);
-    success = true;
+    const success = await this.saveData(STORAGE_KEYS.ATTENDANCE_DATA, attendanceData, 
+      (stage, progress) => {
+        // 進捗30%〜100%の間で同期作業の進捗を反映
+        if (progressCallback) progressCallback(stage, 30 + (progress * 0.7));
+      }
+    );
+    
+    console.log(`勤務レコード削除処理完了: ${success ? '成功' : '失敗'}`);
+    return success;
   } catch (error) {
-    console.error(`✗ ローカルストレージでの勤務レコード削除エラー:`, error);
+    console.error(`✗ 勤務レコード削除処理エラー:`, error);
+    return false;
   }
-  
-  // 4. IndexedDBに保存
-  if (USE_INDEXED_DB) {
-    try {
-      await IndexedDBService.saveAttendanceData(attendanceData);
-      console.log(`✓ 勤務レコードをIndexedDBから削除`);
-      success = true;
-    } catch (error) {
-      console.error(`✗ IndexedDBでの勤務レコード削除エラー:`, error);
-    }
-  }
-  
-  // 5. Firebaseに保存（オンライン時のみ）
-  if (USE_FIREBASE && navigator.onLine) {
-    try {
-      await FirebaseService.saveAttendanceData(attendanceData);
-      console.log(`✓ 勤務レコードをFirebaseから削除`);
-      success = true;
-    } catch (error) {
-      console.error(`✗ Firebaseでの勤務レコード削除エラー:`, error);
-    }
-  }
-  
-  console.log(`勤務レコード削除処理完了: ${success ? '成功' : '失敗'}`);
-  return success;
 },
 
 // バイト数のフォーマット

@@ -70,10 +70,23 @@ export const IndexedDBService = {
       const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
       const store = transaction.objectStore(STORES.ATTENDANCE);
       
-      // 既存データをクリア
-      await this.clearStore(STORES.ATTENDANCE);
+      // 既存データをクリア - 明示的に完了を待機
+      await new Promise<void>((resolve, reject) => {
+        const clearRequest = store.clear();
+        
+        clearRequest.onsuccess = () => {
+          console.log(`✓ ストア「${STORES.ATTENDANCE}」をクリアしました`);
+          resolve();
+        };
+        
+        clearRequest.onerror = (event) => {
+          console.error(`✗ ストア「${STORES.ATTENDANCE}」クリアエラー:`, event);
+          reject(new Error('Failed to clear attendance store'));
+        };
+      });
       
       // 各レコードを追加
+      let addedCount = 0;
       for (const record of data) {
         // recordにIDがない場合はIDを生成
         const recordWithId = {
@@ -83,12 +96,25 @@ export const IndexedDBService = {
             : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
         };
         
-        store.add(recordWithId);
+        // 各レコードの追加も明示的に完了を待機
+        await new Promise<void>((resolve, reject) => {
+          const addRequest = store.add(recordWithId);
+          
+          addRequest.onsuccess = () => {
+            addedCount++;
+            resolve();
+          };
+          
+          addRequest.onerror = (event) => {
+            console.error('✗ 勤怠データ追加エラー:', event);
+            reject(new Error('Failed to add attendance record'));
+          };
+        });
       }
       
       return new Promise((resolve) => {
         transaction.oncomplete = () => {
-          console.log(`✓ ${data.length}件の勤怠データをIndexedDBに保存しました`);
+          console.log(`✓ ${addedCount}件の勤怠データをIndexedDBに保存しました`);
           resolve(true);
         };
         
@@ -141,17 +167,43 @@ export const IndexedDBService = {
       const transaction = db.transaction([STORES.SCHEDULE], 'readwrite');
       const store = transaction.objectStore(STORES.SCHEDULE);
       
-      // 既存データをクリア
-      await this.clearStore(STORES.SCHEDULE);
+      // 既存データをクリア - 明示的に完了を待機
+      await new Promise<void>((resolve, reject) => {
+        const clearRequest = store.clear();
+        
+        clearRequest.onsuccess = () => {
+          console.log(`✓ ストア「${STORES.SCHEDULE}」をクリアしました`);
+          resolve();
+        };
+        
+        clearRequest.onerror = (event) => {
+          console.error(`✗ ストア「${STORES.SCHEDULE}」クリアエラー:`, event);
+          reject(new Error('Failed to clear schedule store'));
+        };
+      });
       
       // 各レコードを追加
+      let addedCount = 0;
       for (const item of data) {
-        store.add(item);
+        // 各レコードの追加も明示的に完了を待機
+        await new Promise<void>((resolve, reject) => {
+          const addRequest = store.add(item);
+          
+          addRequest.onsuccess = () => {
+            addedCount++;
+            resolve();
+          };
+          
+          addRequest.onerror = (event) => {
+            console.error('✗ スケジュールデータ追加エラー:', event);
+            reject(new Error('Failed to add schedule item'));
+          };
+        });
       }
       
       return new Promise((resolve) => {
         transaction.oncomplete = () => {
-          console.log(`✓ ${data.length}件のスケジュールデータをIndexedDBに保存しました`);
+          console.log(`✓ ${addedCount}件のスケジュールデータをIndexedDBに保存しました`);
           resolve(true);
         };
         
@@ -253,16 +305,27 @@ export const IndexedDBService = {
       const db = await this.initDB();
       const transaction = db.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
-      const request = store.clear();
       
       return new Promise((resolve) => {
+        const request = store.clear();
+        
         request.onsuccess = () => {
           console.log(`✓ ストア「${storeName}」をクリアしました`);
-          resolve(true);
+          
+          // トランザクションの完了を確実に待機
+          transaction.oncomplete = () => {
+            console.log(`✓ 「${storeName}」クリアトランザクションが完了しました`);
+            resolve(true);
+          };
         };
         
         request.onerror = (event) => {
           console.error(`✗ ストア「${storeName}」クリアエラー:`, event);
+          resolve(false);
+        };
+        
+        transaction.onerror = (event) => {
+          console.error(`✗ 「${storeName}」クリアトランザクションエラー:`, event);
           resolve(false);
         };
       });

@@ -281,6 +281,18 @@ const AttendanceApp: React.FC = () => {
     message: "",
     type: "info",
   });
+
+    // 同期進捗状態
+    const [syncProgress, setSyncProgress] = useState<{
+      show: boolean;
+      progress: number; 
+      stage: string;
+    }>({
+      show: false,
+      progress: 0,
+      stage: ''
+    });
+
   //---------------------------------------------------------------
   // 副作用（useEffect）
   //---------------------------------------------------------------
@@ -716,89 +728,111 @@ useEffect(() => {
     return score;
   };
 
-  // 変更データの同期 - 改善版
-  const syncChanges = async () => {
-    try {
-      console.log("同期処理を開始しました");
-      
-      // スクロール位置の保存
-      captureTableScroll();
-      
-      // オフライン状態チェック
-      if (isOffline || !navigator.onLine) {
-        console.log("オフライン状態のため同期できません");
-        showToast("オフライン状態のため同期できません。データはローカルに保存されています", "warning");
-        return false;
-      }
-      
-      // このタイミングで Firebase にデータを送信
-      let syncSuccess = false;
-      try {
-        // 勤怠データの同期
-        const attendanceSuccess = await StorageService.saveData(
-          STORAGE_KEYS.ATTENDANCE_DATA, 
-          attendanceData
-        );
-        
-        // 予定データの同期
-        const scheduleSuccess = await StorageService.saveData(
-          STORAGE_KEYS.SCHEDULE_DATA, 
-          scheduleData
-        );
-        
-        syncSuccess = attendanceSuccess && scheduleSuccess;
-      } catch (e) {
-        console.error('Firebaseとの同期エラー:', e);
-        showToast("クラウドとの同期に失敗しましたが、データはローカルに保存されています", "warning");
-        return false;
-      }
-      
-      // 同期が成功したらフラグを下げる
-      if (syncSuccess) {
-        setPendingChanges(false);
-        showToast("データを同期しました", "success");
-        
-        // Firebase使用状況を更新
-        if (isAdminMode) {
-          try {
-            const info = await StorageService.getFirebaseStorageInfo();
-            if (info) {
-              setFirebaseStorageInfo(info);
-            }
-          } catch (e) {
-            console.error('Firebase使用状況の更新に失敗:', e);
-          }
-        }
-      } else {
-        showToast("同期に問題が発生しました。後でもう一度お試しください", "warning");
-      }
-      
-      // スクロール位置を復元
-      try {
-        const savedPos = JSON.parse(localStorage.getItem('_sync_button_click_pos') || '{}');
-        if (savedPos.time && Date.now() - savedPos.time < 30000) {
-          window.scrollTo(savedPos.x, savedPos.y);
-          
-          // テーブルのスクロール位置も復元（少し遅延させる）
-          setTimeout(() => {
-            if (tableContainerGlobalRef.current) {
-              tableContainerGlobalRef.current.scrollLeft = globalScrollPosition.x;
-              tableContainerGlobalRef.current.scrollTop = globalScrollPosition.y;
-            }
-          }, 50);
-        }
-      } catch (e) {
-        console.error('スクロール位置の復元に失敗:', e);
-      }
-      
-      console.log("同期処理が完了しました");
-      return syncSuccess;
-    } catch (error) {
-      console.error("同期処理エラー:", error);
-      showToast("データの同期に失敗しました", "error");
+// 変更データの同期 - 改善版
+const syncChanges = async () => {
+  try {
+    console.log("同期処理を開始しました");
+    
+    // 同期開始時にプログレスバーを表示
+    setSyncProgress({ show: true, progress: 0, stage: '同期準備中...' });
+    
+    // スクロール位置の保存
+    captureTableScroll();
+    
+    // オフライン状態チェック
+    if (isOffline || !navigator.onLine) {
+      console.log("オフライン状態のため同期できません");
+      showToast("オフライン状態のため同期できません。データはローカルに保存されています", "warning");
+      setSyncProgress({ show: false, progress: 0, stage: '' });
       return false;
     }
-  };
+    
+    // このタイミングで Firebase にデータを送信
+    let syncSuccess = false;
+    try {
+      // 進捗状況更新用コールバック
+      const progressCallback = (stage: string, progress: number) => {
+        setSyncProgress({ show: true, progress: progress, stage: stage });
+      };
+      
+      // 勤怠データの同期 (0-50%)
+      setSyncProgress({ show: true, progress: 5, stage: '勤怠データを同期中...' });
+      const attendanceSuccess = await StorageService.saveData(
+        STORAGE_KEYS.ATTENDANCE_DATA, 
+        attendanceData,
+        (stage, progress) => progressCallback(`勤怠データ: ${stage}`, progress * 0.5)
+      );
+      
+      // 予定データの同期 (50-100%)
+      setSyncProgress({ show: true, progress: 50, stage: '予定データを同期中...' });
+      const scheduleSuccess = await StorageService.saveData(
+        STORAGE_KEYS.SCHEDULE_DATA, 
+        scheduleData,
+        (stage, progress) => progressCallback(`予定データ: ${stage}`, 50 + progress * 0.5)
+      );
+      
+      syncSuccess = attendanceSuccess && scheduleSuccess;
+    } catch (e) {
+      console.error('Firebaseとの同期エラー:', e);
+      showToast("クラウドとの同期に失敗しましたが、データはローカルに保存されています", "warning");
+      setSyncProgress({ show: false, progress: 0, stage: '' });
+      return false;
+    }
+    
+    // 同期が成功したらフラグを下げる
+    if (syncSuccess) {
+      setPendingChanges(false);
+      setSyncProgress({ show: true, progress: 100, stage: '同期完了!' });
+      
+      // 完了メッセージを表示して、少し待ってからプログレスバーを非表示
+      setTimeout(() => {
+        setSyncProgress({ show: false, progress: 0, stage: '' });
+        showToast("データを同期しました", "success");
+      }, 1000);
+      
+      // Firebase使用状況を更新
+      if (isAdminMode) {
+        try {
+          const info = await StorageService.getFirebaseStorageInfo();
+          if (info) {
+            setFirebaseStorageInfo(info);
+          }
+        } catch (e) {
+          console.error('Firebase使用状況の更新に失敗:', e);
+        }
+      }
+    } else {
+      setSyncProgress({ show: false, progress: 0, stage: '' });
+      showToast("同期に問題が発生しました。後でもう一度お試しください", "warning");
+    }
+    
+    // スクロール位置を復元
+    try {
+      const savedPos = JSON.parse(localStorage.getItem('_sync_button_click_pos') || '{}');
+      if (savedPos.time && Date.now() - savedPos.time < 30000) {
+        window.scrollTo(savedPos.x, savedPos.y);
+        
+        // テーブルのスクロール位置も復元（少し遅延させる）
+        setTimeout(() => {
+          if (tableContainerGlobalRef.current) {
+            tableContainerGlobalRef.current.scrollLeft = globalScrollPosition.x;
+            tableContainerGlobalRef.current.scrollTop = globalScrollPosition.y;
+          }
+        }, 50);
+      }
+    } catch (e) {
+      console.error('スクロール位置の復元に失敗:', e);
+    }
+    
+    console.log("同期処理が完了しました");
+    return syncSuccess;
+  } catch (error) {
+    console.error("同期処理エラー:", error);
+    showToast("データの同期に失敗しました", "error");
+    setSyncProgress({ show: false, progress: 0, stage: '' });
+    return false;
+  }
+};
 
   // カレンダー日付生成
   const generateCalendarDates = (year: number, month: number) => {
@@ -1060,6 +1094,9 @@ const clearSelectionForEmployee = (employeeId: number) => {
 // 勤務区分を登録・更新
 const updateAttendanceRecord = async (employeeId: number, date: Date, workType: string) => {
   try {
+    // 同期開始を表示
+    setSyncProgress({ show: true, progress: 0, stage: '勤務データ更新中...' });
+    
     const dateStr = format(date, "yyyy-MM-dd");
     const employeeName = employees.find(emp => emp.id === employeeId)?.name;
     
@@ -1079,27 +1116,42 @@ const updateAttendanceRecord = async (employeeId: number, date: Date, workType: 
       newAttendanceData.push(newRecord);
     }
     
-    // ローカルストレージに直接保存を試みる
-    try {
-      localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
-      console.log('勤務データ更新: ローカルストレージに保存しました');
-    } catch (e) {
-      console.error('勤務データ更新: ローカルストレージ保存エラー:', e);
-    }
-    
-    // IndexedDBにも保存を試みる
-    try {
-      await IndexedDBService.saveAttendanceData(newAttendanceData);
-      console.log('勤務データ更新: IndexedDBに保存しました');
-    } catch (e) {
-      console.error('勤務データ更新: IndexedDB保存エラー:', e);
-    }
-    
     // 状態を更新
     setAttendanceData(newAttendanceData);
     
-    // オンライン状態なら同期フラグを立てる
-    if (navigator.onLine && !isOffline) {
+    // 一貫したデータ保存フローを使用
+    setSyncProgress({ show: true, progress: 20, stage: 'データをストレージに保存中...' });
+    
+    // StorageServiceを使って保存 (すべてのストレージに一貫して保存)
+    const success = await StorageService.saveData(
+      STORAGE_KEYS.ATTENDANCE_DATA, 
+      newAttendanceData,
+      (stage, progress) => {
+        setSyncProgress({ 
+          show: true, 
+          progress: 20 + (progress * 0.8), 
+          stage: `勤務データ: ${stage}` 
+        });
+      }
+    );
+    
+    if (success) {
+      // 成功時
+      setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
+      setTimeout(() => {
+        setSyncProgress({ show: false, progress: 0, stage: '' });
+      }, 1000);
+      
+      // オンライン時は自動同期済みなのでフラグを下げる
+      if (navigator.onLine && !isOffline) {
+        setPendingChanges(false);
+      } else {
+        setPendingChanges(true);
+      }
+    } else {
+      // 失敗時
+      setSyncProgress({ show: false, progress: 0, stage: '' });
+      showToast("データの一部保存に失敗しました。同期ボタンで再同期してください", "warning");
       setPendingChanges(true);
     }
     
@@ -1107,6 +1159,7 @@ const updateAttendanceRecord = async (employeeId: number, date: Date, workType: 
   } catch (error) {
     console.error('勤務区分の更新に失敗しました:', error);
     showToast("勤務区分の更新に失敗しました", "error");
+    setSyncProgress({ show: false, progress: 0, stage: '' });
     return attendanceData; // 変更せず元のデータを返す
   }
 };
@@ -1313,6 +1366,25 @@ const deleteSchedule = (scheduleId: string) => {
 // オフライン表示コンポーネント - インラインでは使わず、別ファイルのコンポーネントを使用
 const OfflineIndicator: React.FC = () => {
   return <OfflineIndicatorComponent isOffline={isOffline} pendingChanges={pendingChanges} />;
+};
+
+// 同期プログレスバーコンポーネント
+const SyncProgressBar: React.FC = () => {
+  if (!syncProgress.show) return null;
+  
+  return (
+    <div className="fixed inset-x-0 top-0 z-50">
+      <div className="bg-white shadow-md p-2">
+        <div className="text-sm text-center mb-1">{syncProgress.stage}</div>
+        <div className="w-full bg-gray-200 rounded-full h-2.5">
+          <div 
+            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-in-out"
+            style={{ width: `${syncProgress.progress}%` }}
+          ></div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // TableViewコンポーネント
@@ -2656,11 +2728,16 @@ const CalendarView = React.memo(() => {
     const handleSubmit = async () => {
       if (!title.trim() || !selectedScheduleDate) return;
       
+      // 同期開始を表示
+      setSyncProgress({ show: true, progress: 0, stage: '予定データ更新中...' });
+      
       const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
       const employeeIds = isAllEmployees ? [] : selectedEmployees;
       
       try {
         let newScheduleData;
+        
+        setSyncProgress({ show: true, progress: 10, stage: 'データ準備中...' });
         
         if (selectedScheduleItem) {
           // 既存の予定を更新
@@ -2691,41 +2768,44 @@ const CalendarView = React.memo(() => {
           newScheduleData = [...scheduleData, newScheduleItem];
         }
         
-        // ローカルストレージとIndexedDBに保存
-        try {
-          localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
-          await IndexedDBService.saveScheduleData(newScheduleData);
-          console.log('予定データ: ローカルに保存しました');
-        } catch (e) {
-          console.error('ローカル保存エラー:', e);
-        }
-        
         // 状態を更新
         setScheduleData(newScheduleData);
         
-        // オンライン時は即時同期
-        if (navigator.onLine) {
-          try {
-            // Firebaseに直接保存
-            const success = await StorageService.saveData(
-              STORAGE_KEYS.SCHEDULE_DATA, 
-              newScheduleData
-            );
-            
-            if (success) {
-              setPendingChanges(false);
-              showToast(selectedScheduleItem ? "予定を更新しました" : "新しい予定を追加しました", "success");
-            } else {
-              setPendingChanges(true); // 同期失敗時はフラグを立てる
-              showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
-            }
-          } catch (e) {
-            console.error('同期エラー:', e);
-            setPendingChanges(true); // エラー時も同期フラグを立てる
-            showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
+        setSyncProgress({ show: true, progress: 20, stage: 'データをストレージに保存中...' });
+        
+        // StorageServiceを使って保存 (すべてのストレージに一貫して保存)
+        const success = await StorageService.saveData(
+          STORAGE_KEYS.SCHEDULE_DATA, 
+          newScheduleData,
+          (stage, progress) => {
+            setSyncProgress({ 
+              show: true, 
+              progress: 20 + (progress * 0.8), 
+              stage: `予定データ: ${stage}` 
+            });
+          }
+        );
+        
+        if (success) {
+          // 成功時
+          setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
+          setTimeout(() => {
+            setSyncProgress({ show: false, progress: 0, stage: '' });
+            showToast(selectedScheduleItem ? "予定を更新しました" : "新しい予定を追加しました", "success");
+          }, 1000);
+          
+          // オンライン時は自動同期済みなのでフラグを下げる
+          if (navigator.onLine) {
+            setPendingChanges(false);
+          } else {
+            setPendingChanges(true);
+            showToast("データをローカルに保存しました (オフライン)", "info");
           }
         } else {
-          showToast(selectedScheduleItem ? "予定を更新しました (オフライン)" : "新しい予定を追加しました (オフライン)", "info");
+          // 失敗時
+          setSyncProgress({ show: false, progress: 0, stage: '' });
+          showToast("データの一部保存に失敗しました。同期ボタンで再同期してください", "warning");
+          setPendingChanges(true);
         }
         
         closeScheduleModal();
@@ -2733,6 +2813,7 @@ const CalendarView = React.memo(() => {
       } catch (error) {
         console.error('予定操作エラー:', error);
         showToast("予定の保存に失敗しました", "error");
+        setSyncProgress({ show: false, progress: 0, stage: '' });
       }
     };
     
@@ -3248,6 +3329,8 @@ const CalendarView = React.memo(() => {
              onClick={syncChanges} 
              isVisible={navigator.onLine && pendingChanges} 
             />
+            {/* 同期プログレスバー */}
+            <SyncProgressBar />
           </div>
         )}
       </div>
