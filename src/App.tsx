@@ -405,13 +405,19 @@ useEffect(() => {
 
   // オンライン/オフライン状態検出
   useEffect(() => {
-    const handleOnline = () => {
+    const handleOnline = async () => {
       console.log("オンライン状態に復帰");
       setIsOffline(false);
-      // データがある場合のみpendingChangesをtrueに設定
+      
+      // 未同期データがあれば同期フラグを立てる
       if (attendanceData.length > 0 || scheduleData.length > 0) {
         setPendingChanges(true);
-        showToast("オンラインに戻りました。データを同期できます", "info");
+        showToast("オンラインに戻りました。同期ボタンからデータを同期できます", "info");
+        
+        // 自動同期オプション（必要に応じて有効化）
+        // if (true) { // 自動同期を有効にする場合はこのコメントを解除
+        //   await syncChanges();
+        // }
       }
     };
     
@@ -420,7 +426,7 @@ useEffect(() => {
       setIsOffline(true);
       // オフライン時は同期フラグを下げる
       setPendingChanges(false);
-      showToast("オフライン状態になりました。ローカルにデータは保存されます", "warning");
+      showToast("オフライン状態になりました。データはローカルに保存されます", "warning");
     };
     
     window.addEventListener('online', handleOnline);
@@ -1266,33 +1272,61 @@ const resetMonthData = (month: Date = currentDate) => {
 
 // 予定の削除
 const deleteSchedule = (scheduleId: string) => {
-  showConfirm("この予定を削除しますか？", () => {
-    const newScheduleData = scheduleData.filter(item => item.id !== scheduleId);
-    
-    // ローカルストレージに直接保存
+  showConfirm("この予定を削除しますか？", async () => {
     try {
-      localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
-    } catch (e) {
-      console.error('Failed to save schedule data to localStorage:', e);
+      const newScheduleData = scheduleData.filter(item => item.id !== scheduleId);
+      
+      // ローカルストレージとIndexedDBに保存
+      try {
+        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
+        await IndexedDBService.saveScheduleData(newScheduleData);
+        console.log('予定削除: ローカルに保存しました');
+      } catch (e) {
+        console.error('ローカル保存エラー:', e);
+      }
+      
+      // 状態を更新
+      setScheduleData(newScheduleData);
+      
+      // オンライン時は即時同期
+      if (navigator.onLine) {
+        try {
+          const success = await StorageService.saveData(
+            STORAGE_KEYS.SCHEDULE_DATA, 
+            newScheduleData
+          );
+          
+          if (success) {
+            setPendingChanges(false);
+            showToast("予定を削除しました", "info");
+          } else {
+            setPendingChanges(true);
+            showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
+          }
+        } catch (e) {
+          console.error('同期エラー:', e);
+          setPendingChanges(true);
+          showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
+        }
+      } else {
+        showToast("予定を削除しました (オフライン)", "info");
+      }
+      
+      setShowScheduleModal(false);
+      setSelectedScheduleItem(null);
+      
+    } catch (error) {
+      console.error('予定削除エラー:', error);
+      showToast("予定の削除に失敗しました", "error");
     }
-    
-    setScheduleData(newScheduleData);
-    
-    // オンラインなら同期処理を実行
-    if (navigator.onLine) {
-      syncChanges();
-    }
-    
-    setShowScheduleModal(false);
-    setSelectedScheduleItem(null);
-    showToast("予定を削除しました", "info");
   });
 };
+
 //---------------------------------------------------------------
 // サブコンポーネント
 //---------------------------------------------------------------
 // オフライン表示コンポーネント - インラインでは使わず、別ファイルのコンポーネントを使用
-const OfflineIndicator = () => {
+const OfflineIndicator: React.FC = () => {
   return <OfflineIndicatorComponent isOffline={isOffline} pendingChanges={pendingChanges} />;
 };
 
@@ -2128,37 +2162,46 @@ const CalendarView = React.memo(() => {
             newAttendanceData.push(newRecord);
           });
           
-          // ローカルストレージに保存
+          // ローカルストレージとIndexedDBに保存
           try {
             localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newAttendanceData));
-            console.log('一括更新: ローカルストレージに保存しました');
-          } catch (e) {
-            console.error('一括更新: ローカルストレージ保存エラー:', e);
-          }
-          
-          // IndexedDBにも保存
-          try {
             await IndexedDBService.saveAttendanceData(newAttendanceData);
-            console.log('一括更新: IndexedDBに保存しました');
+            console.log('一括更新: ローカルに保存しました');
           } catch (e) {
-            console.error('一括更新: IndexedDB保存エラー:', e);
+            console.error('ローカル保存エラー:', e);
           }
           
           // 状態を更新
           setAttendanceData(newAttendanceData);
+          
+          // オンライン時は即時同期
+          if (navigator.onLine) {
+            try {
+              const success = await StorageService.saveData(
+                STORAGE_KEYS.ATTENDANCE_DATA, 
+                newAttendanceData
+              );
+              
+              if (success) {
+                setPendingChanges(false);
+                showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
+              } else {
+                setPendingChanges(true);
+                showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
+              }
+            } catch (e) {
+              console.error('同期エラー:', e);
+              setPendingChanges(true);
+              showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
+            }
+          } else {
+            showToast(`${selectedCells.length}件の勤務区分を一括更新しました (オフライン)`, "info");
+          }
+          
           setShowWorkTypeModal(false);
           setSelectedCells([]);
           setSelectedWorkType("");
           
-          // 変更があったので同期フラグを立てる
-          if (navigator.onLine) {
-            setPendingChanges(true);
-            
-            // オプションで即時同期も可能
-            // await syncChanges();
-          }
-          
-          showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
         } catch (error) {
           console.error('一括更新エラー:', error);
           showToast("勤務区分の一括更新に失敗しました", "error");
@@ -2193,35 +2236,48 @@ const CalendarView = React.memo(() => {
         // 更新されたデータ
         const updatedData = [...newAttendanceData, newRecord];
         
-        // ローカルストレージに保存
+        // ローカルストレージとIndexedDBに保存
         try {
           localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(updatedData));
-          console.log('勤務区分更新: ローカルストレージに保存しました');
-        } catch (e) {
-          console.error('勤務区分更新: ローカルストレージ保存エラー:', e);
-        }
-        
-        // IndexedDBにも保存
-        try {
           await IndexedDBService.saveAttendanceData(updatedData);
-          console.log('勤務区分更新: IndexedDBに保存しました');
+          console.log('勤務区分更新: ローカルに保存しました');
         } catch (e) {
-          console.error('勤務区分更新: IndexedDB保存エラー:', e);
+          console.error('ローカル保存エラー:', e);
         }
         
         // 状態を更新
         setAttendanceData(updatedData);
+        
+        // オンライン時は即時同期
+        if (navigator.onLine) {
+          try {
+            const success = await StorageService.saveData(
+              STORAGE_KEYS.ATTENDANCE_DATA, 
+              updatedData
+            );
+            
+            if (success) {
+              setPendingChanges(false);
+              const employeeName = employees.find(emp => emp.id === selectedCell.employeeId)?.name || "";
+              showToast(`${employeeName}さんの勤務区分を登録しました`, "success");
+            } else {
+              setPendingChanges(true);
+              showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
+            }
+          } catch (e) {
+            console.error('同期エラー:', e);
+            setPendingChanges(true);
+            showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
+          }
+        } else {
+          const employeeName = employees.find(emp => emp.id === selectedCell.employeeId)?.name || "";
+          showToast(`${employeeName}さんの勤務区分を登録しました (オフライン)`, "info");
+        }
+        
         setShowWorkTypeModal(false);
         setSelectedCell(null);
         setSelectedWorkType("");
         
-        // 変更があったので同期フラグを立てる
-        if (navigator.onLine) {
-          setPendingChanges(true);
-        }
-        
-        const employeeName = employees.find(emp => emp.id === selectedCell.employeeId)?.name || "";
-        showToast(`${employeeName}さんの勤務区分を登録しました`, "success");
       } catch (error) {
         console.error('勤務区分更新エラー:', error);
         showToast("勤務区分の更新に失敗しました", "error");
@@ -2585,84 +2641,83 @@ const CalendarView = React.memo(() => {
       if (!title.trim() || !selectedScheduleDate) return;
       
       const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
-      
-      // 対象の従業員設定
       const employeeIds = isAllEmployees ? [] : selectedEmployees;
       
-      let newScheduleData;
-      
-      if (selectedScheduleItem) {
-        // 既存の予定を更新
-        newScheduleData = scheduleData.map(item => 
-          item.id === selectedScheduleItem.id 
-            ? { 
-                ...item, 
-                title, 
-                details, 
-                color, 
-                employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
-                employeeIds: employeeIds
-              }
-            : item
-        );
+      try {
+        let newScheduleData;
         
-        // ローカルストレージに直接保存（同期前の保険として）
+        if (selectedScheduleItem) {
+          // 既存の予定を更新
+          newScheduleData = scheduleData.map(item => 
+            item.id === selectedScheduleItem.id 
+              ? { 
+                  ...item, 
+                  title, 
+                  details, 
+                  color, 
+                  employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
+                  employeeIds: employeeIds
+                }
+              : item
+          );
+        } else {
+          // 新規予定を追加
+          const newScheduleItem: ScheduleItem = {
+            id: Date.now().toString(),
+            employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
+            employeeIds: employeeIds,
+            date: dateStr,
+            title,
+            details,
+            color
+          };
+          
+          newScheduleData = [...scheduleData, newScheduleItem];
+        }
+        
+        // ローカルストレージとIndexedDBに保存
         try {
           localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
+          await IndexedDBService.saveScheduleData(newScheduleData);
+          console.log('予定データ: ローカルに保存しました');
         } catch (e) {
-          console.error('Failed to save schedule to localStorage:', e);
+          console.error('ローカル保存エラー:', e);
         }
         
         // 状態を更新
         setScheduleData(newScheduleData);
         
-        // オンラインなら同期処理を実行
+        // オンライン時は即時同期
         if (navigator.onLine) {
           try {
-            await syncChanges();
+            // Firebaseに直接保存
+            const success = await StorageService.saveData(
+              STORAGE_KEYS.SCHEDULE_DATA, 
+              newScheduleData
+            );
+            
+            if (success) {
+              setPendingChanges(false);
+              showToast(selectedScheduleItem ? "予定を更新しました" : "新しい予定を追加しました", "success");
+            } else {
+              setPendingChanges(true); // 同期失敗時はフラグを立てる
+              showToast("クラウドへの同期に失敗しました。データはローカルに保存されています", "warning");
+            }
           } catch (e) {
-            console.error("予定更新の同期中にエラーが発生:", e);
+            console.error('同期エラー:', e);
+            setPendingChanges(true); // エラー時も同期フラグを立てる
+            showToast("クラウドへの同期に失敗しました。後で再同期してください", "warning");
           }
+        } else {
+          showToast(selectedScheduleItem ? "予定を更新しました (オフライン)" : "新しい予定を追加しました (オフライン)", "info");
         }
         
-        showToast("予定を更新しました", "success");
-      } else {
-        // 新規予定を追加
-        const newScheduleItem: ScheduleItem = {
-          id: Date.now().toString(),
-          employeeId: isAllEmployees ? "" : (selectedEmployees[0] || ""), // 後方互換性のため
-          employeeIds: employeeIds,
-          date: dateStr,
-          title,
-          details,
-          color
-        };
+        closeScheduleModal();
         
-        newScheduleData = [...scheduleData, newScheduleItem];
-        
-        // ローカルストレージに直接保存（同期前の保険として）
-        try {
-          localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newScheduleData));
-        } catch (e) {
-          console.error('Failed to save schedule to localStorage:', e);
-        }
-        
-        // 状態を更新
-        setScheduleData(newScheduleData);
-        
-        // オンラインなら同期処理を実行
-        if (navigator.onLine) {
-          try {
-            await syncChanges();
-          } catch (e) {
-            console.error("予定追加の同期中にエラーが発生:", e);
-          }
-        }
-        
-        showToast("新しい予定を追加しました", "success");
+      } catch (error) {
+        console.error('予定操作エラー:', error);
+        showToast("予定の保存に失敗しました", "error");
       }
-      
-      closeScheduleModal();
     };
     
     const handleEmployeeToggle = (employeeId: string) => {
@@ -3173,10 +3228,9 @@ const CalendarView = React.memo(() => {
             <AdminToggle />
             
             {/* オフライン通知とデータ同期ボタン */}
-            <OfflineIndicator />
             <SyncButton 
-              onClick={syncChanges} 
-              isVisible={!isOffline && pendingChanges} 
+             onClick={syncChanges} 
+             isVisible={navigator.onLine && pendingChanges} 
             />
           </div>
         )}
