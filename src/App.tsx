@@ -750,17 +750,6 @@ const calculateEmployeeWorkTypeScore = useCallback((employeeId: number) => {
       score += 0.5;
     }
   });
-  
-  // デバッグ情報を出力 - 無効化
-  // 必要な場合のみ開発環境でのみ有効にする
-  /*
-  if (employeeId === 19) { // 中谷さんのID
-    console.log(`${employees.find(emp => emp.id === employeeId)?.name}の集計:`, 
-                `元データ数=${attendanceData.filter(r => r.employeeId === employeeId.toString() && r.date.startsWith(yearMonth)).length}`,
-                `重複除去後=${dateWorkTypeMap.size}`,
-                `スコア=${score}`);
-  }
-  */
       
   return score;
 }, [attendanceData, currentDate]);
