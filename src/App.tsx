@@ -713,47 +713,57 @@ const AttendanceApp: React.FC = () => {
 
   // 特定従業員の勤務区分スコアを計算する関数
   // メモ化して不要な再計算を防止
-  const calculateEmployeeWorkTypeScore = useCallback((employeeId: number) => {
-    let score = 0;
-    
-    const yearMonth = format(currentDate, "yyyy-MM");
-    
-    // 日付ごとに最新の勤務区分だけを取得するためのマップ
-    const dateWorkTypeMap = new Map<string, string>();
-    
-    // 同じ日付のデータが複数ある場合、後のデータ（おそらく最新）で上書き
-    attendanceData.forEach(record => {
-      if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
-        dateWorkTypeMap.set(record.date, record.workType);
-      }
-    });
-    
-    // マップに整理された（重複のない）データでスコア計算
-    dateWorkTypeMap.forEach((workType, dateStr) => {
-      if (workType === '休') {
-        // 日付文字列から Date オブジェクトを作成
-        const recordDate = new Date(dateStr);
-        // 土曜日の場合は0.5点、それ以外の日は1.0点
-        if (isSaturday(recordDate)) {
-          score += 0.5;
-        } else {
-          score += 1.0;
-        }
-      } else if (workType === 'A' || workType === 'P' || workType === 'Ap') {
-        score += 0.5;
-      }
-    });
-    
-    // デバッグ情報を出力（必要に応じてコメントアウト）
-    if (employeeId === 19) { // 中谷さんのID
-      console.log(`${employees.find(emp => emp.id === employeeId)?.name}の集計:`, 
-                  `元データ数=${attendanceData.filter(r => r.employeeId === employeeId.toString() && r.date.startsWith(yearMonth)).length}`,
-                  `重複除去後=${dateWorkTypeMap.size}`,
-                  `スコア=${score}`);
+// 土曜日かどうかを判定する関数
+const isSaturday = (date: Date): boolean => {
+  return date.getDay() === 6; // 土曜日(6)
+};
+
+// 特定従業員の勤務区分スコアを計算する関数
+// メモ化して不要な再計算を防止
+const calculateEmployeeWorkTypeScore = useCallback((employeeId: number) => {
+  let score = 0;
+  
+  const yearMonth = format(currentDate, "yyyy-MM");
+  
+  // 日付ごとに最新の勤務区分だけを取得するためのマップ
+  const dateWorkTypeMap = new Map<string, string>();
+  
+  // 同じ日付のデータが複数ある場合、後のデータ（おそらく最新）で上書き
+  attendanceData.forEach(record => {
+    if (record.employeeId === employeeId.toString() && record.date.startsWith(yearMonth)) {
+      dateWorkTypeMap.set(record.date, record.workType);
     }
+  });
+  
+  // マップに整理された（重複のない）データでスコア計算
+  dateWorkTypeMap.forEach((workType, dateStr) => {
+    if (workType === '休') {
+      // 日付文字列から Date オブジェクトを作成
+      const recordDate = new Date(dateStr);
+      // 土曜日の場合は0.5点、それ以外の日は1.0点
+      if (isSaturday(recordDate)) {
+        score += 0.5;
+      } else {
+        score += 1.0;
+      }
+    } else if (workType === 'A' || workType === 'P' || workType === 'Ap') {
+      score += 0.5;
+    }
+  });
+  
+  // デバッグ情報を出力 - 無効化
+  // 必要な場合のみ開発環境でのみ有効にする
+  /*
+  if (employeeId === 19) { // 中谷さんのID
+    console.log(`${employees.find(emp => emp.id === employeeId)?.name}の集計:`, 
+                `元データ数=${attendanceData.filter(r => r.employeeId === employeeId.toString() && r.date.startsWith(yearMonth)).length}`,
+                `重複除去後=${dateWorkTypeMap.size}`,
+                `スコア=${score}`);
+  }
+  */
       
-    return score;
-  }, [attendanceData, currentDate]);
+  return score;
+}, [attendanceData, currentDate]);
 
   // 最適化されたスクロール位置復元関数
   const restoreScrollPosition = useCallback(() => {
@@ -973,16 +983,13 @@ const AttendanceApp: React.FC = () => {
     return record ? record.workType : null;
   }, [attendanceData]);
   
-  // 平日（月〜金）かどうかを判定する関数
-  const isWeekday = (date: Date): boolean => {
-    const day = date.getDay();
-    return day >= 1 && day <= 5; // 月曜日(1)から金曜日(5)まで
-  };
-  
-  // 土曜日かどうかを判定する関数
-  const isSaturday = (date: Date): boolean => {
-    return date.getDay() === 6; // 土曜日(6)
-  };
+// 平日（月〜金）かどうかを判定する関数
+const isWeekday = (date: Date): boolean => {
+  const day = date.getDay();
+  return day >= 1 && day <= 5; // 月曜日(1)から金曜日(5)まで
+};
+
+// 土曜日の関数は先頭に移動したため、ここでは削除
 
   // 条件1の勤務区分リスト
   const WARNING_WORK_TYPES_CONDITION1 = [

@@ -1,7 +1,7 @@
 // src/services/indexedDBService.ts
 import { AttendanceRecord } from '../types';
 
-// ScheduleItemの型定義を追加
+// ScheduleItemの型定義
 interface ScheduleItem {
   id: string;
   employeeId: string;  // 後方互換性のために維持
@@ -20,6 +20,18 @@ const STORES = {
   SETTINGS: 'settings'
 };
 
+// 開発環境かどうかの判定
+const isDev = process.env.NODE_ENV === 'development';
+
+// ロギング関数 - 開発環境のみログを出力する
+const logInfo = (message: string, ...args: any[]) => {
+  if (isDev) console.log(message, ...args);
+};
+
+const logError = (message: string, ...args: any[]) => {
+  console.error(message, ...args);
+};
+
 export const IndexedDBService = {
   // データベース初期化
   async initDB(): Promise<IDBDatabase> {
@@ -27,7 +39,7 @@ export const IndexedDBService = {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       
       request.onerror = (event) => {
-        console.error('IndexedDB初期化エラー:', event);
+        logError('IndexedDB初期化エラー:', event);
         reject(new Error('IndexedDBを開けませんでした'));
       };
       
@@ -44,20 +56,20 @@ export const IndexedDBService = {
           const attendanceStore = db.createObjectStore(STORES.ATTENDANCE, { keyPath: 'id' });
           attendanceStore.createIndex('employeeId', 'employeeId', { unique: false });
           attendanceStore.createIndex('date', 'date', { unique: false });
-          console.log('出勤データストアを作成しました');
+          logInfo('出勤データストアを作成しました');
         }
         
         // スケジュールデータストア
         if (!db.objectStoreNames.contains(STORES.SCHEDULE)) {
           const scheduleStore = db.createObjectStore(STORES.SCHEDULE, { keyPath: 'id' });
           scheduleStore.createIndex('date', 'date', { unique: false });
-          console.log('スケジュールストアを作成しました');
+          logInfo('スケジュールストアを作成しました');
         }
         
         // 設定ストア
         if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
           db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' });
-          console.log('設定ストアを作成しました');
+          logInfo('設定ストアを作成しました');
         }
       };
     });
@@ -70,71 +82,51 @@ export const IndexedDBService = {
       const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
       const store = transaction.objectStore(STORES.ATTENDANCE);
       
-      // 既存データをクリア - 明示的に完了を待機
+      // 既存データをクリア
       await new Promise<void>((resolve, reject) => {
         const clearRequest = store.clear();
-        
-        clearRequest.onsuccess = () => {
-          console.log(`✓ ストア「${STORES.ATTENDANCE}」をクリアしました`);
-          resolve();
-        };
-        
-        clearRequest.onerror = (event) => {
-          console.error(`✗ ストア「${STORES.ATTENDANCE}」クリアエラー:`, event);
-          reject(new Error('Failed to clear attendance store'));
-        };
+        clearRequest.onsuccess = () => resolve();
+        clearRequest.onerror = (event) => reject(new Error('Failed to clear attendance store'));
       });
       
-      // バッチサイズを制限して処理負荷を分散
-      const BATCH_SIZE = 50;
+      // 最適化されたバッチ処理
+      const BATCH_SIZE = 100; // バッチサイズを増加
       let addedCount = 0;
       
-      // データを小さなバッチに分割
+      // データをバッチに分割して処理
       for (let i = 0; i < data.length; i += BATCH_SIZE) {
         const batch = data.slice(i, i + BATCH_SIZE);
         
-        // バッチ内の各レコードを処理
-        await Promise.all(batch.map(async (record) => {
-          // recordにIDがない場合はIDを生成
-          const recordWithId = {
-            ...record,
-            id: record.employeeId && record.date 
-              ? `${record.employeeId}_${record.date}`
-              : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
-          };
-          
-          // add の代わりに put を使用して既存レコードの上書きを可能に
-          return new Promise<void>((resolve, reject) => {
-            const putRequest = store.put(recordWithId);
+        await Promise.all(batch.map(record => {
+          return new Promise<void>(resolve => {
+            const recordWithId = {
+              ...record,
+              id: record.employeeId && record.date 
+                ? `${record.employeeId}_${record.date}`
+                : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+            };
             
+            const putRequest = store.put(recordWithId);
             putRequest.onsuccess = () => {
               addedCount++;
               resolve();
             };
-            
-            putRequest.onerror = (event) => {
-              console.warn('⚠ 勤怠データ更新での警告:', event);
-              // エラーでも処理は継続
-              resolve();
-            };
+            putRequest.onerror = () => resolve(); // エラー時も処理続行
           });
         }));
       }
       
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         transaction.oncomplete = () => {
-          console.log(`✓ ${addedCount}件の勤怠データをIndexedDBに保存しました`);
+          logInfo(`${addedCount}件の勤怠データをIndexedDBに保存しました`);
           resolve(true);
         };
-        
-        transaction.onerror = (event) => {
-          console.error('✗ 勤怠データ保存エラー:', event);
-          // 一部保存に成功している可能性があるためtrueを返す
-          resolve(addedCount > 0);
+        transaction.onerror = () => {
+          resolve(addedCount > 0); // 一部成功の場合もtrueを返す
         };
       });
     } catch (error) {
-      console.error('✗ IndexedDB勤怠データ保存エラー:', error);
+      logError('IndexedDB勤怠データ保存エラー:', error);
       return false;
     }
   },
@@ -145,27 +137,26 @@ export const IndexedDBService = {
       const db = await this.initDB();
       const transaction = db.transaction([STORES.ATTENDANCE], 'readonly');
       const store = transaction.objectStore(STORES.ATTENDANCE);
-      const request = store.getAll();
       
       return new Promise((resolve, reject) => {
+        const request = store.getAll();
+        
         request.onsuccess = () => {
           const records = request.result.map(record => {
-            // IDフィールドを削除して返す（APIと整合性をとるため）
             const { id, ...recordWithoutId } = record;
             return recordWithoutId as AttendanceRecord;
           });
           
-          console.log(`✓ ${records.length}件の勤怠データをIndexedDBから読み込みました`);
+          logInfo(`${records.length}件の勤怠データを読み込みました`);
           resolve(records);
         };
         
-        request.onerror = (event) => {
-          console.error('✗ 勤怠データ取得エラー:', event);
+        request.onerror = () => {
           reject(new Error('勤怠データ取得に失敗しました'));
         };
       });
     } catch (error) {
-      console.error('✗ IndexedDB勤怠データ取得エラー:', error);
+      logError('IndexedDB勤怠データ取得エラー:', error);
       return [];
     }
   },
@@ -177,62 +168,43 @@ export const IndexedDBService = {
       const transaction = db.transaction([STORES.SCHEDULE], 'readwrite');
       const store = transaction.objectStore(STORES.SCHEDULE);
       
-      // 既存データをクリア - 明示的に完了を待機
+      // 既存データをクリア
       await new Promise<void>((resolve, reject) => {
         const clearRequest = store.clear();
-        
-        clearRequest.onsuccess = () => {
-          console.log(`✓ ストア「${STORES.SCHEDULE}」をクリアしました`);
-          resolve();
-        };
-        
-        clearRequest.onerror = (event) => {
-          console.error(`✗ ストア「${STORES.SCHEDULE}」クリアエラー:`, event);
-          reject(new Error('Failed to clear schedule store'));
-        };
+        clearRequest.onsuccess = () => resolve();
+        clearRequest.onerror = () => reject(new Error('Failed to clear schedule store'));
       });
       
-      // バッチサイズを制限して処理負荷を分散
-      const BATCH_SIZE = 50;
+      // 最適化されたバッチ処理
+      const BATCH_SIZE = 100;
       let addedCount = 0;
       
-      // データを小さなバッチに分割
       for (let i = 0; i < data.length; i += BATCH_SIZE) {
         const batch = data.slice(i, i + BATCH_SIZE);
         
-        // バッチ内の各レコードを処理
-        await Promise.all(batch.map(async (item) => {
-          return new Promise<void>((resolve, reject) => {
+        await Promise.all(batch.map(item => {
+          return new Promise<void>(resolve => {
             const putRequest = store.put(item);
-            
             putRequest.onsuccess = () => {
               addedCount++;
               resolve();
             };
-            
-            putRequest.onerror = (event) => {
-              console.warn('⚠ スケジュールデータ更新での警告:', event);
-              // エラーでも処理は継続
-              resolve();
-            };
+            putRequest.onerror = () => resolve(); // エラー時も処理続行
           });
         }));
       }
       
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         transaction.oncomplete = () => {
-          console.log(`✓ ${addedCount}件のスケジュールデータをIndexedDBに保存しました`);
+          logInfo(`${addedCount}件のスケジュールデータを保存しました`);
           resolve(true);
         };
-        
-        transaction.onerror = (event) => {
-          console.error('✗ スケジュールデータ保存エラー:', event);
-          // 一部保存に成功している可能性があるためtrueを返す
-          resolve(addedCount > 0);
+        transaction.onerror = () => {
+          resolve(addedCount > 0); // 一部成功の場合もtrueを返す
         };
       });
     } catch (error) {
-      console.error('✗ IndexedDBスケジュールデータ保存エラー:', error);
+      logError('IndexedDBスケジュールデータ保存エラー:', error);
       return false;
     }
   },
@@ -243,21 +215,21 @@ export const IndexedDBService = {
       const db = await this.initDB();
       const transaction = db.transaction([STORES.SCHEDULE], 'readonly');
       const store = transaction.objectStore(STORES.SCHEDULE);
-      const request = store.getAll();
       
       return new Promise((resolve, reject) => {
+        const request = store.getAll();
+        
         request.onsuccess = () => {
-          console.log(`✓ ${request.result.length}件のスケジュールデータをIndexedDBから読み込みました`);
+          logInfo(`${request.result.length}件のスケジュールデータを読み込みました`);
           resolve(request.result as ScheduleItem[]);
         };
         
-        request.onerror = (event) => {
-          console.error('✗ スケジュールデータ取得エラー:', event);
+        request.onerror = () => {
           reject(new Error('スケジュールデータ取得に失敗しました'));
         };
       });
     } catch (error) {
-      console.error('✗ IndexedDBスケジュールデータ取得エラー:', error);
+      logError('IndexedDBスケジュールデータ取得エラー:', error);
       return [];
     }
   },
@@ -269,21 +241,13 @@ export const IndexedDBService = {
       const transaction = db.transaction([STORES.SETTINGS], 'readwrite');
       const store = transaction.objectStore(STORES.SETTINGS);
       
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const putRequest = store.put({ key, value });
-        
-        putRequest.onsuccess = () => {
-          console.log(`✓ 設定「${key}」をIndexedDBに保存しました`);
-          resolve(true);
-        };
-        
-        putRequest.onerror = (event) => {
-          console.error(`✗ 設定「${key}」保存エラー:`, event);
-          resolve(false);
-        };
+        putRequest.onsuccess = () => resolve(true);
+        putRequest.onerror = () => resolve(false);
       });
     } catch (error) {
-      console.error(`✗ IndexedDB設定保存エラー (${key}):`, error);
+      logError(`IndexedDB設定保存エラー (${key}):`, error);
       return false;
     }
   },
@@ -294,26 +258,22 @@ export const IndexedDBService = {
       const db = await this.initDB();
       const transaction = db.transaction([STORES.SETTINGS], 'readonly');
       const store = transaction.objectStore(STORES.SETTINGS);
-      const request = store.get(key);
       
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
+        const request = store.get(key);
+        
         request.onsuccess = () => {
           if (request.result) {
-            console.log(`✓ 設定「${key}」をIndexedDBから読み込みました`);
             resolve(request.result.value);
           } else {
-            console.log(`⚠ 設定「${key}」が見つかりません`);
             resolve(defaultValue);
           }
         };
         
-        request.onerror = () => {
-          console.error(`✗ 設定「${key}」取得エラー`);
-          resolve(defaultValue);
-        };
+        request.onerror = () => resolve(defaultValue);
       });
     } catch (error) {
-      console.error(`✗ IndexedDB設定取得エラー (${key}):`, error);
+      logError(`IndexedDB設定取得エラー (${key}):`, error);
       return defaultValue;
     }
   },
@@ -325,31 +285,18 @@ export const IndexedDBService = {
       const transaction = db.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
       
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const request = store.clear();
         
         request.onsuccess = () => {
-          console.log(`✓ ストア「${storeName}」をクリアしました`);
-          
-          // トランザクションの完了を確実に待機
-          transaction.oncomplete = () => {
-            console.log(`✓ 「${storeName}」クリアトランザクションが完了しました`);
-            resolve(true);
-          };
+          transaction.oncomplete = () => resolve(true);
+          transaction.onerror = () => resolve(false);
         };
         
-        request.onerror = (event) => {
-          console.error(`✗ ストア「${storeName}」クリアエラー:`, event);
-          resolve(false);
-        };
-        
-        transaction.onerror = (event) => {
-          console.error(`✗ 「${storeName}」クリアトランザクションエラー:`, event);
-          resolve(false);
-        };
+        request.onerror = () => resolve(false);
       });
     } catch (error) {
-      console.error(`✗ IndexedDBストアクリアエラー (${storeName}):`, error);
+      logError(`IndexedDBストアクリアエラー (${storeName}):`, error);
       return false;
     }
   },
@@ -364,15 +311,15 @@ export const IndexedDBService = {
         if (!result) success = false;
       }
       
-      console.log(`✓ IndexedDBの全データをクリアしました`);
+      logInfo('IndexedDBの全データをクリアしました');
       return success;
     } catch (error) {
-      console.error('✗ IndexedDB全データクリアエラー:', error);
+      logError('IndexedDB全データクリアエラー:', error);
       return false;
     }
   },
   
-  // ヘルスチェック（改善版）
+  // ヘルスチェック
   async healthCheck(): Promise<boolean> {
     try {
       const testKey = '_health_check';
@@ -393,7 +340,7 @@ export const IndexedDBService = {
       
       return true;
     } catch (error) {
-      console.error('✗ IndexedDBヘルスチェックエラー:', error);
+      logError('IndexedDBヘルスチェックエラー:', error);
       return false;
     }
   }
