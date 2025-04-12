@@ -2213,7 +2213,8 @@ const CalendarView = React.memo(() => {
   // 勤務登録モーダル
   const WorkTypeSelectionModal = () => {
     const [selectedWorkType, setSelectedWorkType] = useState("");
-
+    const selectRef = useRef<HTMLSelectElement>(null);
+  
     useEffect(() => {
       if (showWorkTypeModal && selectedCell) {
         // 既存の勤務データがあれば選択状態にする
@@ -2227,6 +2228,13 @@ const CalendarView = React.memo(() => {
         } else {
           setSelectedWorkType("");
         }
+        
+        // セレクトボックスにフォーカスする（少し遅らせて実行）
+        setTimeout(() => {
+          if (selectRef.current) {
+            selectRef.current.focus();
+          }
+        }, 100);
       } else if (showWorkTypeModal && selectedCells.length > 0 && isBulkEditMode) {
         // 一括編集モードの場合は空欄からスタート
         setSelectedWorkType("");
@@ -2246,6 +2254,7 @@ const CalendarView = React.memo(() => {
         }
       }
     }, [showWorkTypeModal, selectedCell, selectedCells, isBulkEditMode, attendanceData, globalScrollPosition]);
+  
     
     // モーダルが閉じられた後のスクロール位置復元
     useEffect(() => {
@@ -2591,9 +2600,11 @@ const CalendarView = React.memo(() => {
           )}
           
           <select
+            ref={selectRef}
             value={selectedWorkType}
             onChange={(e) => setSelectedWorkType(e.target.value)}
-            className="w-full p-2 border rounded mb-4"
+            className="w-full p-2 border rounded mb-4 modal-select"
+            style={{ fontSize: '16px', WebkitAppearance: 'menulist', appearance: 'menulist' }}
           >
             <option value="">選択してください</option>
             {workTypes.map((type) => (
@@ -2807,6 +2818,7 @@ const CalendarView = React.memo(() => {
     const [color, setColor] = useState(PRESET_COLORS[0].value);
     const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
     const [isAllEmployees, setIsAllEmployees] = useState(true);
+    const titleInputRef = useRef<HTMLInputElement>(null);
     
     // 編集モードの場合は既存の値をセット
     useEffect(() => {
@@ -2839,7 +2851,16 @@ const CalendarView = React.memo(() => {
         setSelectedEmployees([]);
         setIsAllEmployees(true);
       }
-    }, [selectedScheduleItem]);
+      
+      // タイトル入力フィールドにフォーカス（少し遅らせて実行）
+      if (showScheduleModal) {
+        setTimeout(() => {
+          if (titleInputRef.current) {
+            titleInputRef.current.focus();
+          }
+        }, 100);
+      }
+    }, [selectedScheduleItem, showScheduleModal]);
 
     const handleSubmit = async () => {
       if (!title.trim() || !selectedScheduleDate) return;
@@ -3023,23 +3044,26 @@ const CalendarView = React.memo(() => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">タイトル <span className="text-red-500">*</span></label>
             <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full p-2 border rounded"
-              placeholder="予定のタイトル"
-            />
+            ref={titleInputRef}
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full p-2 border rounded modal-input"
+            placeholder="予定のタイトル"
+            style={{ fontSize: '16px' }}
+          />
           </div>
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">詳細</label>
             <textarea
-              value={details}
-              onChange={(e) => setDetails(e.target.value)}
-              className="w-full p-2 border rounded"
-              rows={3}
-              placeholder="予定の詳細（任意）"
-            />
+            value={details}
+            onChange={(e) => setDetails(e.target.value)}
+            className="w-full p-2 border rounded modal-textarea"
+            rows={3}
+            placeholder="予定の詳細（任意）"
+            style={{ fontSize: '16px' }}
+          />
           </div>
           
           <div>
