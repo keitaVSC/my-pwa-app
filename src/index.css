@@ -133,10 +133,8 @@
 
 /* スマホ対応 */
 @media (max-width: 768px) {
-  body, html {
-    touch-action: manipulation !important;
-    -webkit-tap-highlight-color: transparent !important;
-    overscroll-behavior: none !important;
+  body {
+    touch-action: auto;
   }
 
   .calendar-grid {
@@ -151,24 +149,15 @@
   .calendar-cell {
     min-height: 80px;
     padding: 4px;
-    touch-action: manipulation !important;
-    cursor: pointer !important;
-    -webkit-tap-highlight-color: transparent !important;
   }
 
   .attendance-table-wrapper {
     height: calc(100vh - 180px);
-    overscroll-behavior: none !important;
   }
 
   .attendance-table-container {
     overflow: auto;
-    -webkit-overflow-scrolling: touch !important;
-    /* モバイル専用のスクロール設定 */
-    touch-action: pan-x pan-y !important;
-    scroll-behavior: auto;
-    overscroll-behavior: none !important;
-    will-change: transform !important; /* GPU加速を促進 */
+    -webkit-overflow-scrolling: touch;
   }
 
   /* スクロールバーのスタイル */
@@ -184,17 +173,6 @@
     -webkit-box-shadow: 0 0 1px rgba(255, 255, 255, .5);
   }
 
-  /* セルのタッチ操作 */
-  .attendance-table td, 
-  .attendance-table th,
-  button,
-  select,
-  input[type="checkbox"] {
-    touch-action: manipulation !important;
-    -webkit-tap-highlight-color: transparent !important;
-    cursor: pointer !important;
-  }
-
   /* 祝日名の調整 */
   .calendar-cell .text-xs.text-red-500.truncate {
     font-size: 10px;
@@ -207,19 +185,8 @@
   /* 選択状態のスタイル */
   .attendance-table td.selected {
     position: relative;
-    z-index: 10 !important;
-    box-shadow: 0 0 0 2px #3b82f6 !important;
-  }
-  
-  /* タップターゲットのサイズ拡大 */
-  button, 
-  .calendar-cell, 
-  .attendance-table td,
-  select,
-  input[type="checkbox"],
-  .sync-button {
-    min-height: 44px !important; /* Appleの推奨サイズ */
-    min-width: 44px !important;
+    z-index: 1;
+    box-shadow: 0 0 0 2px #3b82f6;
   }
 }
 
@@ -309,27 +276,9 @@
 
 /* モバイル向けのスクロール位置改善 */
 @media (max-width: 768px) {
-  /* タップのハイライト効果を無効化 */
-  * {
-    -webkit-tap-highlight-color: transparent;
-  }
-  
-  /* スクロール動作の改善 */
+  /* ベーシックなモバイル最適化 - 過剰な制約なし */
   .attendance-table-container {
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: none;
-    touch-action: pan-x pan-y;
-    will-change: transform;
-  }
-  
-  /* タップ遅延を削減 */
-  .attendance-table td, 
-  .attendance-table th,
-  button,
-  select,
-  input[type="checkbox"],
-  .calendar-cell {
-    touch-action: manipulation;
   }
 }
 

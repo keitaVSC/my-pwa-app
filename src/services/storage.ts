@@ -19,89 +19,91 @@ const USE_INDEXED_DB = true; // IndexedDBを使用するかどうか
 // ストレージサービス
 export const StorageService = {
   // データ保存 - 優先順位: 1. LocalStorage (常に) 2. IndexedDB (有効時) 3. Firebase (オンライン時)
-  // パフォーマンス最適化版
   async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
-    // 進捗コールバックのデフォルト実装
-    const noop = (stage: string, progress: number) => {};
-    progressCallback = progressCallback || noop;
+    let totalSteps = 1; // ローカルストレージは常に使用
+    if (USE_INDEXED_DB) totalSteps++;
+    if (USE_FIREBASE && navigator.onLine) totalSteps++;
     
-    // 開始進捗通知
-    progressCallback('開始', 0);
+    let currentStep = 0;
     
-    // 処理ステップの直列化（並列処理よりも安定性を優先）
-    let success = false;
-    
-    // 1. ローカルストレージへの保存（最も高速）
+    // 常に最初にローカルストレージに保存を試みる (最も高速なアクセス)
+    let localStorageSuccess = false;
     try {
-      // パフォーマンス改善: 小さいデータセットの場合はJSONを最適化
-      let jsonData;
-      if (Array.isArray(data) && data.length < 1000) {
-        jsonData = JSON.stringify(data);
-      } else {
-        // 大きなデータの場合は圧縮を考慮
-        jsonData = JSON.stringify(data);
-      }
-      
-      localStorage.setItem(key, jsonData);
-      success = true;
+      localStorage.setItem(key, JSON.stringify(data));
+      localStorageSuccess = true;
       console.log(`✓ ${key}をローカルストレージに保存しました`);
-      progressCallback('ローカルストレージ', 33);
+      
+      currentStep++;
+      if (progressCallback) progressCallback('localStorage', (currentStep / totalSteps) * 100);
     } catch (error) {
       console.error(`✗ ローカルストレージへの保存に失敗しました: ${key}`, error);
     }
     
-    // 2. IndexedDBへの保存（条件付き）
+    // IndexedDBへの保存 (LocalStorageより容量が大きく、より信頼性が高い)
+    let indexedDBSuccess = false;
     if (USE_INDEXED_DB) {
       try {
-        let indexedDBSuccess = false;
+        if (progressCallback) progressCallback('IndexedDB処理中...', (currentStep / totalSteps) * 100);
         
+        // 主要データはIndexedDBにも保存
         if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
           indexedDBSuccess = await IndexedDBService.saveAttendanceData(data as any);
+          console.log(`✓ ${key}をIndexedDBに保存しました`);
         } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
           indexedDBSuccess = await IndexedDBService.saveScheduleData(data as any);
+          console.log(`✓ ${key}をIndexedDBに保存しました`);
         } else {
+          // 設定データはシンプルなkey-valueとして保存
           indexedDBSuccess = await IndexedDBService.saveSetting(key, data);
+          console.log(`✓ ${key}を設定としてIndexedDBに保存しました`);
         }
         
-        if (indexedDBSuccess) success = true;
-        progressCallback('IndexedDB', 66);
+        currentStep++;
+        if (progressCallback) progressCallback('IndexedDB', (currentStep / totalSteps) * 100);
       } catch (error) {
         console.error(`✗ IndexedDBへの保存に失敗しました: ${key}`, error);
       }
-    } else {
-      // IndexedDBを使用しない場合は進捗を進める
-      progressCallback('スキップ', 66);
     }
     
-    // 3. Firebaseへの保存（オンライン時のみ）
+    // Firebaseに保存（オンライン時のみ）
+    let firebaseSuccess = false;
     if (USE_FIREBASE && navigator.onLine) {
       try {
-        let firebaseSuccess = false;
+        if (progressCallback) progressCallback('Firebase接続中...', (currentStep / totalSteps) * 100);
         
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
-            firebaseSuccess = await FirebaseService.saveAttendanceData(data as any);
+            await FirebaseService.saveAttendanceData(data as any);
+            firebaseSuccess = true;
+            console.log(`✓ ${key}をFirebaseに保存しました`);
             break;
           case STORAGE_KEYS.SCHEDULE_DATA:
-            firebaseSuccess = await FirebaseService.saveScheduleData(data as any);
+            await FirebaseService.saveScheduleData(data as any);
+            firebaseSuccess = true;
+            console.log(`✓ ${key}をFirebaseに保存しました`);
             break;
-          default:
-            firebaseSuccess = await FirebaseService.saveSettings(key, data);
+          case STORAGE_KEYS.ADMIN_MODE:
+          case STORAGE_KEYS.CURRENT_VIEW:
+          case STORAGE_KEYS.CURRENT_DATE:
+          case STORAGE_KEYS.SELECTED_EMPLOYEE:
+            await FirebaseService.saveSettings(key, data);
+            firebaseSuccess = true;
+            console.log(`✓ ${key}をFirebase設定に保存しました`);
             break;
         }
         
-        if (firebaseSuccess) success = true;
-        progressCallback('Firebase', 100);
+        currentStep++;
+        if (progressCallback) progressCallback('Firebase', (currentStep / totalSteps) * 100);
       } catch (error) {
         console.error(`✗ Firebaseへの保存に失敗しました: ${key}`, error);
-        progressCallback('完了', 100);
       }
-    } else {
-      // Firebaseを使用しない場合でも進捗を完了
-      progressCallback('完了', 100);
     }
     
-    return success;
+    // 最終ステップでプログレスを100%に設定
+    if (progressCallback) progressCallback('完了', 100);
+    
+    // すべてのストレージ操作が失敗した場合のみfalseを返す
+    return localStorageSuccess || indexedDBSuccess || firebaseSuccess;
   },
   
   // ローカルストレージからデータを取得
