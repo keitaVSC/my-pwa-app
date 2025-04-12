@@ -295,90 +295,96 @@ const AttendanceApp: React.FC = () => {
   // 副作用（useEffect）
   //---------------------------------------------------------------
   // データの初期化を非同期で行う
-  useEffect(() => {
-    const initializeData = async () => {
-      setIsLoading(true);
+// useEffectの最適化: App.tsxの初期化処理を改善
+useEffect(() => {
+  const initializeData = async () => {
+    setIsLoading(true);
+    
+    try {
+      // オフライン状態を先に確認
+      const isNetworkOffline = !navigator.onLine;
+      setIsOffline(isNetworkOffline);
       
-      try {
-        // オフライン状態を先に確認
-        const isNetworkOffline = !navigator.onLine;
-        setIsOffline(isNetworkOffline);
-        
-        // ストレージの健全性チェックを行う
-        const storageHealth = await StorageService.checkStorageHealth();
-        console.log('ストレージ健全性:', storageHealth);
-        
-        // データ読み込み
-        const attendance = await StorageService.getDataAsync<AttendanceRecord[]>(
-          STORAGE_KEYS.ATTENDANCE_DATA, []
-        );
-        const schedule = await StorageService.getDataAsync<ScheduleItem[]>(
-          STORAGE_KEYS.SCHEDULE_DATA, []
-        );
-        
-        // 状態を更新
-        setAttendanceData(attendance);
-        setScheduleData(schedule);
-        
-        // 設定も同様に読み込み
-        const currentView = await StorageService.getDataAsync<View>(
-          STORAGE_KEYS.CURRENT_VIEW, "calendar"
-        );
-        const savedDateStr = await StorageService.getDataAsync<string>(
-          STORAGE_KEYS.CURRENT_DATE, ""
-        );
-        const selectedEmp = await StorageService.getDataAsync<string>(
-          STORAGE_KEYS.SELECTED_EMPLOYEE, ""
-        );
-        const adminMode = await StorageService.getDataAsync<boolean>(
-          STORAGE_KEYS.ADMIN_MODE, false
-        );
-        
-        // 日付データの処理
-        const currentDateTime = savedDateStr ? new Date(savedDateStr) : new Date();
-        
-        // 各設定を適用
-        setCurrentView(currentView);
-        setCurrentDate(currentDateTime);
-        setSelectedMonth(currentDateTime);
-        setSelectedEmployee(selectedEmp);
-        setIsAdminMode(adminMode);
-        
-        // ストレージ使用状況確認
-        if (adminMode) {
+      // 並列データ読み込みで最適化
+      const [
+        attendance,
+        schedule,
+        currentView,
+        savedDateStr,
+        selectedEmp,
+        adminMode
+      ] = await Promise.all([
+        StorageService.getDataAsync<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE_DATA, []),
+        StorageService.getDataAsync<ScheduleItem[]>(STORAGE_KEYS.SCHEDULE_DATA, []),
+        StorageService.getDataAsync<View>(STORAGE_KEYS.CURRENT_VIEW, "calendar"),
+        StorageService.getDataAsync<string>(STORAGE_KEYS.CURRENT_DATE, ""),
+        StorageService.getDataAsync<string>(STORAGE_KEYS.SELECTED_EMPLOYEE, ""),
+        StorageService.getDataAsync<boolean>(STORAGE_KEYS.ADMIN_MODE, false)
+      ]);
+      
+      // 状態を更新（バッチ更新で最適化）
+      const currentDateTime = savedDateStr ? new Date(savedDateStr) : new Date();
+      
+      // 一括で状態を更新
+      setAttendanceData(attendance);
+      setScheduleData(schedule);
+      setCurrentView(currentView);
+      setCurrentDate(currentDateTime);
+      setSelectedMonth(currentDateTime);
+      setSelectedEmployee(selectedEmp);
+      setIsAdminMode(adminMode);
+      
+      // 非同期処理を分割して UI ブロッキングを防止
+      if (adminMode) {
+        setTimeout(() => {
           const warning = StorageService.checkStorageWarning(70);
           if (warning) {
             showToast(warning, "warning");
           }
-        }
-        
-        // Firebase情報は管理者モードかつオンライン時のみ
-        if (adminMode && !isNetworkOffline) {
-          const firebaseInfo = await StorageService.getFirebaseStorageInfo();
-          if (firebaseInfo) {
-            setFirebaseStorageInfo(firebaseInfo);
+        }, 100);
+      }
+      
+      // Firebase情報の取得を遅延実行
+      if (adminMode && !isNetworkOffline) {
+        setTimeout(async () => {
+          try {
+            const firebaseInfo = await StorageService.getFirebaseStorageInfo();
+            if (firebaseInfo) {
+              setFirebaseStorageInfo(firebaseInfo);
+            }
+          } catch (e) {
+            console.error("Firebase情報取得エラー:", e);
           }
-        }
-        
-        // オフライン時の通知
-        if (isNetworkOffline) {
+        }, 500);
+      }
+      
+      // オフライン通知も遅延実行
+      if (isNetworkOffline) {
+        setTimeout(() => {
           showToast("オフライン状態のため、ローカルデータを使用しています", "info");
-        }
-        
-        // 未同期データがあるかチェック
+        }, 300);
+      }
+      
+      // 未同期データチェックも遅延実行
+      setTimeout(() => {
         if (!isNetworkOffline && (attendance.length > 0 || schedule.length > 0)) {
           setPendingChanges(true);
         }
-      } catch (error) {
-        console.error("データ初期化エラー:", error);
-        showToast("データの読み込みに問題が発生しました。ページを再読み込みしてください", "error");
-      } finally {
+      }, 700);
+      
+    } catch (error) {
+      console.error("データ初期化エラー:", error);
+      showToast("データの読み込みに問題が発生しました。ページを再読み込みしてください", "error");
+    } finally {
+      // 少し遅延させてローディング表示を解除
+      setTimeout(() => {
         setIsLoading(false);
-      }
-    };
-    
-    initializeData();
-  }, []);
+      }, 300);
+    }
+  };
+  
+  initializeData();
+}, []);
 
   // コンポーネントマウント時の処理
   useEffect(() => {
@@ -1635,28 +1641,31 @@ const isWeekday = (date: Date): boolean => {
       <div className="flex flex-col h-full">
         <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
           <div className="flex gap-2 items-center flex-wrap">
-            <select
-              value={selectedEmployee}
-              onChange={(e) => {
-                requestAnimationFrame(() => {
-                  rememberScrollPosition();
-                });
-                setSelectedEmployee(e.target.value);
+          <select
+            id="employee-selector"
+            name="employee-selector"
+            value={selectedEmployee}
+            onChange={(e) => {
+              // アニメーションフレームを使用してUIブロックを防止
+              requestAnimationFrame(() => {
+                rememberScrollPosition();
+              });
+              setSelectedEmployee(e.target.value);
+             }}
+             className="w-64 p-2 border rounded mobile-select"
+             style={{ 
+               fontSize: '16px', 
+               WebkitAppearance: 'menulist', 
+               appearance: 'menulist',
+               display: 'block',
+               opacity: 1,
+               visibility: 'visible'
               }}
-              className="w-64 p-2 border rounded modal-select"
-              style={{ 
-                fontSize: '16px', 
-                WebkitAppearance: 'menulist', 
-                appearance: 'menulist',
-                display: 'block',
-                opacity: 1,
-                visibility: 'visible'
-              }}
-            >
-              <option value="">全従業員を表示</option>
+             >
+               <option value="">全従業員を表示</option>
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.id.toString()}>
-                  {emp.name}
+                 {emp.name}
                 </option>
               ))}
             </select>
@@ -2706,28 +2715,30 @@ return (
       )}
       
       <select
-        ref={selectRef}
-        value={selectedWorkType}
-        onChange={(e) => setSelectedWorkType(e.target.value)}
-        className="w-full p-2 border rounded mb-4 modal-select"
-        style={{ 
-          fontSize: '16px', 
-          WebkitAppearance: 'menulist', 
-          appearance: 'menulist',
-          display: 'block',
-          visibility: 'visible',
-          opacity: 1,
-          backgroundColor: 'white',
-          color: 'black'
-        }}
-      >
-        <option value="">選択してください</option>
-        {workTypes.map((type) => (
-          <option key={type.id} value={type.id}>
-            {type.label}
-          </option>
-        ))}
-      </select>
+  ref={selectRef}
+  id="work-type-selector"
+  name="work-type-selector"
+  value={selectedWorkType}
+  onChange={(e) => setSelectedWorkType(e.target.value)}
+  className="w-full p-2 border rounded mobile-select"
+  style={{ 
+    fontSize: '16px', 
+    WebkitAppearance: 'menulist', 
+    appearance: 'menulist',
+    display: 'block',
+    visibility: 'visible',
+    opacity: 1,
+    backgroundColor: 'white',
+    color: 'black'
+  }}
+>
+  <option value="">選択してください</option>
+  {workTypes.map((type) => (
+    <option key={type.id} value={type.id}>
+      {type.label}
+    </option>
+  ))}
+</select>
       <div className="flex justify-end gap-2 mt-6">
         {(selectedWorkType || (selectedCell && attendanceData.some(
           record => record.employeeId === selectedCell.employeeId.toString() && 
