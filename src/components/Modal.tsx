@@ -18,60 +18,49 @@ const Modal: React.FC<ModalProps> = ({
   showCloseButton = true 
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
-  const bodyScrollPositionRef = useRef<{ x: number, y: number }>({ x: 0, y: 0 });
+  const scrollPositionRef = useRef<number>(0);
 
+  // モーダル表示時の処理
   useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+    if (!isOpen) return;
+
+    // スクロール位置を保存
+    scrollPositionRef.current = window.pageYOffset || document.documentElement.scrollTop;
+    
+    // スクロール防止
+    document.body.classList.add('modal-open');
+    document.body.style.top = `-${scrollPositionRef.current}px`;
+    
+    // キーボードイベント（ESCキー）
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    
+    // モーダル外クリック
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+        e.preventDefault();
+        e.stopPropagation();
         onClose();
       }
     };
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      // スクロール位置を保存（複数の方法で取得を試みる）
-      bodyScrollPositionRef.current = {
-        x: window.pageXOffset || window.scrollX || document.documentElement.scrollLeft,
-        y: window.pageYOffset || window.scrollY || document.documentElement.scrollTop
-      };
-      
-      // イベントリスナーを追加
-      document.addEventListener('keydown', handleEscape);
-      document.addEventListener('mousedown', handleClickOutside);
-      
-      // スクロール防止 - よりモバイルフレンドリーな方法
-      const scrollY = bodyScrollPositionRef.current.y;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    }
-
+    
+    // イベントリスナー登録
+    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('mousedown', handleOutsideClick);
+    
+    // クリーンアップ関数
     return () => {
-      // イベントリスナーを削除
       document.removeEventListener('keydown', handleEscape);
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleOutsideClick);
       
+      // モーダルが閉じられたときだけ実行
       if (isOpen) {
-        // スクロール位置を復元
-        const scrollY = bodyScrollPositionRef.current.y;
-        document.body.style.position = '';
+        document.body.classList.remove('modal-open');
         document.body.style.top = '';
-        document.body.style.width = '';
+        document.body.style.position = '';
         document.body.style.overflow = '';
-        
-        // スクロール位置を複数の方法で復元を試みる
-        window.scrollTo(0, scrollY);
-        
-        // 少し遅延させて再度スクロール位置を復元（より確実に）
-        setTimeout(() => {
-          window.scrollTo(0, scrollY);
-        }, 50);
+        window.scrollTo(0, scrollPositionRef.current);
       }
     };
   }, [isOpen, onClose]);
@@ -79,26 +68,37 @@ const Modal: React.FC<ModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 modal-overlay"
-         style={{ touchAction: 'none' }}>
+    <div 
+      className="modal-overlay touch-fix"
+      onClick={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchMove={(e) => e.stopPropagation()}
+    >
       <div
         ref={modalRef}
-        className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-auto modal-body"
-        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+        className="modal-body fade-in"
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white z-10">
           <h2 className="text-xl font-bold">{title}</h2>
           {showCloseButton && (
             <button
-              onClick={onClose}
-              className="p-1 hover:bg-gray-100 rounded-full"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+              }}
+              className="p-2 hover:bg-gray-100 rounded-full touch-fix"
               aria-label="Close modal"
+              style={{ minHeight: '44px', minWidth: '44px' }}
             >
               <X className="h-6 w-6" />
             </button>
           )}
         </div>
-        <div className="p-4">{children}</div>
+        <div className="p-4" onClick={(e) => e.stopPropagation()}>
+          {children}
+        </div>
       </div>
     </div>
   );

@@ -528,70 +528,238 @@
   touch-action: auto;
 }
 
-/* セレクトボックスとフォーム要素の表示改善 */
-.modal-select,
-.modal-input,
-.modal-textarea {
-  font-size: 16px !important; /* モバイルでフォーカス時に自動ズームを防止 */
-  appearance: menulist !important; /* ネイティブUI使用 */
-  -webkit-appearance: menulist !important;
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.375rem;
+/* セレクトボックスとフォーム操作の修正 */
+select, input, textarea, button {
+  font-size: 16px !important; /* iOS自動ズーム防止 */
+  -webkit-appearance: none; /* デフォルトスタイリングを無効化 */
+  appearance: none;
+  border-radius: 4px;
+}
+
+/* セレクトボックス特有の修正 */
+select {
+  -webkit-appearance: menulist !important; /* セレクトボックス特有の見た目を復活 */
+  appearance: menulist !important;
   background-color: white;
-  touch-action: manipulation;
+  padding-right: 20px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
 }
 
-.modal-input,
-.modal-textarea {
-  appearance: auto !important;
-  -webkit-appearance: auto !important;
+/* モーダル全体のスタイル改善 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 9999 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* スクロール動作の改善 */
-.attendance-table-container, 
-.calendar-grid,
 .modal-body {
+  background-color: white;
+  border-radius: 0.5rem;
+  width: 95%;
+  max-width: 500px;
+  margin: 1rem auto;
+  max-height: 85vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: 20px; /* 操作スペースを確保 */
+  touch-action: pan-y;
+  position: relative;
+  z-index: 10000;
+}
+
+/* モーダル内のフォーム要素 */
+.modal-select {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  font-size: 16px !important;
+  position: relative !important;
+  -webkit-appearance: menulist !important;
+  appearance: menulist !important;
+  width: 100%;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border: 1px solid #cbd5e0;
+  background-color: white;
+  color: black;
+  z-index: 10001;
+}
+
+.modal-input, 
+.modal-textarea {
+  font-size: 16px !important;
+  width: 100%;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border: 1px solid #cbd5e0;
+  background-color: white;
+}
+
+/* タッチ操作向け改善 */
+.touch-fix {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* タッチターゲットサイズ拡大 */
+@media (max-width: 768px) {
+  .modal-body button, 
+  .modal-body select,
+  .modal-body input[type="checkbox"],
+  .modal-body input[type="radio"],
+  .calendar-cell button,
+  .attendance-table td {
+    min-height: 44px; /* Appleの推奨最小タッチターゲットサイズ */
+    min-width: 44px;
+  }
+  
+  /* チェックボックス周辺のタップ領域拡大 */
+  .modal-body input[type="checkbox"] + label,
+  .modal-body input[type="radio"] + label {
+    display: inline-block;
+    padding: 8px;
+    margin: -8px;
+  }
+  
+  /* スクロール問題修正 */
+  body.modal-open {
+    position: fixed;
+    width: 100%;
+    overflow: hidden;
+  }
+  
+  /* セレクト表示問題の修正 */
+  select {
+    opacity: 1 !important; 
+    z-index: 1;
+    background-color: white !important;
+    border: 1px solid #e2e8f0 !important;
+    color: black !important;
+    font-size: 16px !important;
+    height: auto !important;
+    padding: 8px 12px !important;
+    text-shadow: none !important;
+  }
+}
+
+/* カレンダービューでのイベント伝播問題を修正 */
+.calendar-cell,
+.calendar-cell > * {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+}
+
+.calendar-cell button {
+  position: relative;
+  z-index: 20;
+  background-color: rgba(255,255,255,0.8);
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* スクロール位置リセット防止 */
+.attendance-table-container,
+.modal-body,
+.calendar-grid {
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: auto;
 }
 
-/* モバイル向け最適化 */
+/* 操作性向上のための追加スタイル */
+.touch-callout-none {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* モーダル開閉時のアニメーション調整 */
+.fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* モバイルでのフォーム要素操作の改善 */
+.ios-select-fix {
+  font-size: 16px !important;
+  -webkit-appearance: menulist !important;
+  appearance: menulist !important;
+  background-color: white !important;
+  color: black !important;
+  border: 1px solid #e2e8f0 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative !important;
+}
+
+/* タッチしやすいUIの強化 */
+.touch-fix {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+/* モバイルでのフォーム要素の位置ズレ防止 */
 @media (max-width: 768px) {
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-width: 22px;
+    min-height: 22px;
+    margin: 0 8px 0 0;
+  }
+  
+  label {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 8px 0;
+  }
+  
+  /* タッチ領域の拡大 */
+  .calendar-cell,
+  .attendance-table td,
+  .modal-body button,
+  .modal-body select,
   .modal-select,
   .modal-input,
   .modal-textarea {
-    font-size: 16px !important;
+    min-height: 44px !important;
   }
   
+  /* モーダル内の操作を改善 */
   .modal-body {
-    width: 95%;
-    margin: 0.5rem;
-  }
-  
-  /* タッチエリアの拡大 */
-  .modal-body button, 
-  .modal-body select, 
-  .modal-body input[type="checkbox"] + label {
-    min-height: 2.5rem;
-    touch-action: manipulation;
-  }
-  
-  /* モーダル内のセレクトボックスを確実に表示 */
-  .modal-body select {
-    opacity: 1 !important;
-    position: relative !important;
-    display: block !important;
-    visibility: visible !important;
+    padding-bottom: 80px;
   }
 }
 
-/* スクロール復元中は一時的に遷移を無効化 */
-.scroll-lock {
-  overflow: hidden !important;
-  position: fixed;
-  width: 100%;
-  height: 100%;
+/* モーダルの操作性改善 */
+.modal-overlay {
+  touch-action: none;
+}
+
+.modal-body {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
