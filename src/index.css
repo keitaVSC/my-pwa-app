@@ -441,3 +441,57 @@
     background-color: #4299e1;
   }
 }
+
+/* z-indexの階層管理 */
+.z-progress {
+  z-index: 4000 !important;
+}
+
+.z-toast {
+  z-index: 3500 !important;
+}
+
+.z-modal {
+  z-index: 3000 !important;
+}
+
+.z-overlay {
+  z-index: 2500 !important;
+}
+
+/* ポインターイベント管理 */
+.pointer-events-none {
+  pointer-events: none !important;
+}
+
+.pointer-events-auto {
+  pointer-events: auto !important;
+}
+
+/* SyncButtonとOfflineIndicatorの改善 */
+.sync-button-container,
+.offline-indicator {
+  position: fixed;
+  z-index: 3000;
+  pointer-events: auto;
+}
+
+/* スクロール動作の最適化 */
+.attendance-table-container,
+.attendance-table-wrapper {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  will-change: transform;
+  touch-action: pan-x pan-y;
+}
+
+/* モバイル向け最適化 */
+@media (max-width: 768px) {
+  .attendance-table-container {
+    scroll-behavior: auto;
+  }
+  
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}

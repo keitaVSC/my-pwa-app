@@ -1,5 +1,6 @@
 // src/components/SyncButton.tsx
 import React from 'react';
+import { format, parse, isSameMonth, addMonths, subMonths, startOfMonth, isAfter, isBefore, isSameDay } from "date-fns";
 
 interface SyncButtonProps {
   onClick: () => void;
@@ -10,9 +11,7 @@ const SyncButton: React.FC<SyncButtonProps> = ({ onClick, isVisible }) => {
   if (!isVisible) return null;
 
   const handleClick = (e: React.MouseEvent) => {
-    // イベントのバブリングを止める
-    e.stopPropagation();
-    // クリック時のスクロール位置を保存
+    // スクロール位置を先に保存
     try {
       const scrollPosition = {
         x: window.scrollX,
@@ -23,12 +22,20 @@ const SyncButton: React.FC<SyncButtonProps> = ({ onClick, isVisible }) => {
     } catch (e) {
       console.error('Failed to save sync button click position', e);
     }
-    // ボタンクリックの処理を実行
-    onClick();
+    
+    // バブリングは必要な場合のみ停止
+    if (e.target !== e.currentTarget) {
+      e.stopPropagation();
+    }
+    
+    // ボタンクリックの処理を実行（アニメーションフレームを使用してメインスレッドをブロックしない）
+    requestAnimationFrame(() => {
+      onClick();
+    });
   };
 
   return (
-    <div className="sync-button-container">
+    <div className="sync-button-container pointer-events-auto">
       <button
         onClick={handleClick}
         className="sync-button"
