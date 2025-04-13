@@ -1,34 +1,55 @@
 /* src/styles/offline-indicator.css */
 .offline-indicator {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    background-color: #ff9800;
-    color: white;
-    padding: 8px 16px;
-    border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: opacity 0.3s ease;
-    animation: slideUp 0.5s ease-out;
-    z-index: 1900; /* SyncButtonより下に表示 */
-  }
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  background-color: #ff9800;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   
-  @keyframes slideUp {
-    from {
-      transform: translateY(20px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
-  }
+  /* パフォーマンス最適化 */
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000;
   
-  /* SyncButtonがある場合の位置調整 */
-  .sync-button-container + .offline-indicator {
-    bottom: 60px; /* SyncButtonの下に表示 */
+  /* 効率的なアニメーション（GPUアクセラレーション活用） */
+  animation: offlineIndicatorAppear 0.3s cubic-bezier(0.215, 0.61, 0.355, 1);
+  z-index: 1900;
+  
+  /* タッチデバイス向け最適化 */
+  touch-action: none;
+}
+
+@keyframes offlineIndicatorAppear {
+  from {
+    opacity: 0;
+    transform: translateY(20px) translateZ(0);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0) translateZ(0);
+  }
+}
+
+/* SyncButtonとの位置調整最適化 */
+.sync-button-container + .offline-indicator {
+  bottom: 70px;
+}
+
+/* タッチ領域最適化 */
+.offline-indicator button {
+  min-width: 30px;
+  min-height: 30px; 
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
