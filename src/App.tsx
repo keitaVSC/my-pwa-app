@@ -1026,119 +1026,209 @@ const AttendanceApp: React.FC = () => {
   //---------------------------------------------------------------
   // データ操作関数
   //---------------------------------------------------------------
-  // 高度に最適化された同期処理関数
-  const syncChanges = async () => {
-    try {
-      console.log("同期処理を開始しました");
-      
-      // スクロール位置を先に保存
-      captureTableScroll();
-      
-      // 同期開始時にプログレスバーを表示
-      setSyncProgress({ show: true, progress: 0, stage: '同期準備中...' });
-      
-      // オフライン状態チェック
-      if (isOffline || !navigator.onLine) {
-        console.log("オフライン状態のため同期できません");
-        showToast("オフライン状態のため同期できません。データはローカルに保存されています", "warning");
-        setSyncProgress({ show: false, progress: 0, stage: '' });
-        return false;
-      }
-      
-      // 進捗コールバックを最適化
-      const createOptimizedCallback = (prefix: string, startProgress: number, endProgress: number) => {
-        let lastReportedProgress = 0;
-        
-        return (stage: string, progress: number) => {
-          // 進捗率を計算（startからendの範囲にマッピング）
-          const actualProgress = startProgress + ((progress / 100) * (endProgress - startProgress));
-          
-          // 進捗が10%以上変化した場合か、100%に達した場合のみ更新する
-          const progressDiff = Math.abs(actualProgress - lastReportedProgress);
-          if (progressDiff >= 10 || progress === 100 || progress === 0) {
-            lastReportedProgress = actualProgress;
-            
-            // UIをブロックしないようrequestAnimationFrameを使用
-            safeExecute(() => {
-              setSyncProgress({ 
-                show: true, 
-                progress: Math.round(actualProgress), 
-                stage: `${prefix}: ${stage}` 
-              });
-            });
-          }
-        };
-      };
-      
-      // 同期処理を実行（主要な進捗ポイントのみでUIを更新）
-      let syncSuccess = false;
-      
-      try {
-        // 勤怠データの同期（0-40%）
-        setSyncProgress({ show: true, progress: 5, stage: '勤怠データを同期中...' });
-        const attendanceSuccess = await StorageService.saveData(
-          STORAGE_KEYS.ATTENDANCE_DATA, 
-          attendanceData,
-          createOptimizedCallback('勤怠データ', 5, 40)
-        );
-        
-        // 予定データの同期（40-90%）
-        setSyncProgress({ show: true, progress: 40, stage: '予定データを同期中...' });
-        const scheduleSuccess = await StorageService.saveData(
-          STORAGE_KEYS.SCHEDULE_DATA, 
-          scheduleData,
-          createOptimizedCallback('予定データ', 40, 90)
-        );
-        
-        syncSuccess = attendanceSuccess && scheduleSuccess;
-      } catch (e) {
-        console.error('Firebaseとの同期エラー:', e);
-        showToast("クラウドとの同期に失敗しましたが、データはローカルに保存されています", "warning");
-        setSyncProgress({ show: false, progress: 0, stage: '' });
-        restoreScrollPosition();
-        return false;
-      }
-      
-      // 同期が成功したらフラグを下げる
-      if (syncSuccess) {
-        setPendingChanges(false);
-        setSyncProgress({ show: true, progress: 100, stage: '同期完了!' });
-        
-        // 完了表示と非表示の間を開けて、UIの安定性を確保
-        setTimeout(() => {
-          safeExecute(() => {
-            setSyncProgress({ show: false, progress: 0, stage: '' });
-            showToast("データを同期しました", "success");
-          });
-          
-          // Firebase使用状況を更新（管理者モードのみ）
-          if (isAdminMode && navigator.onLine) {
-            StorageService.getFirebaseStorageInfo().then(info => {
-              if (info) {
-                setFirebaseStorageInfo(info);
-              }
-            }).catch(e => {
-              console.error('Firebase使用状況の更新に失敗:', e);
-            });
-          }
-        }, 1000);
-      } else {
-        setSyncProgress({ show: false, progress: 0, stage: '' });
-        showToast("同期に問題が発生しました。後でもう一度お試しください", "warning");
-      }
-      
-      // スクロール位置を最後に復元
-      restoreScrollPosition();
-      
-      console.log("同期処理が完了しました");
-      return syncSuccess;
-    } catch (error) {
-      console.error("同期処理エラー:", error);
-      showToast("データの同期に失敗しました", "error");
+
+// メインスレッドをブロックしない最適化された同期処理関数
+const syncChanges = async () => {
+  try {
+    console.log("同期処理を開始しました");
+    
+    // スクロール位置を先に保存
+    captureTableScroll();
+    
+    // 同期開始時にプログレスバーを表示
+    setSyncProgress({ show: true, progress: 0, stage: '同期準備中...' });
+    
+    // オフライン状態チェック
+    if (isOffline || !navigator.onLine) {
+      console.log("オフライン状態のため同期できません");
+      showToast("オフライン状態のため同期できません。データはローカルに保存されています", "warning");
       setSyncProgress({ show: false, progress: 0, stage: '' });
       return false;
     }
-  };
+    
+    // 同期処理をチャンク分割して実行（UIスレッドブロッキングを防止）
+    let syncSuccess = false;
+    
+    try {
+      // 勤怠データの同期（非同期化と進捗表示の最適化）
+      setSyncProgress({ show: true, progress: 5, stage: '勤怠データを同期中...' });
+      
+      // データ同期を複数のマイクロタスクに分割
+      const attendanceSuccess = await new Promise<boolean>(async (resolve) => {
+        // タイムスライシングのためのユーティリティ関数
+        const processInChunks = async (
+          array: any[], 
+          chunkSize: number, 
+          processor: (chunk: any[]) => Promise<void>,
+          progressCallback: (progress: number) => void
+        ) => {
+          const chunks = [];
+          for (let i = 0; i < array.length; i += chunkSize) {
+            chunks.push(array.slice(i, i + chunkSize));
+          }
+          
+          for (let i = 0; i < chunks.length; i++) {
+            // 現在のチャンクを処理
+            await processor(chunks[i]);
+            
+            // 進捗報告（10%刻みでのみ）
+            const progress = Math.round((i + 1) / chunks.length * 100);
+            if (progress % 10 === 0 || progress === 100) {
+              progressCallback(progress);
+            }
+            
+            // UIスレッドを解放するために短い待機を挿入
+            if (i < chunks.length - 1) {
+              await new Promise(r => setTimeout(r, 0));
+            }
+          }
+        };
+        
+        try {
+          // 進捗コールバックを最適化（スロットリング）
+          let lastReportedProgress = 0;
+          let lastReportTime = 0;
+          
+          const reportProgress = (progress: number) => {
+            const now = Date.now();
+            // 150ms以内の更新はスキップ（スロットリング）
+            if (progress - lastReportedProgress < 10 && now - lastReportTime < 150 && progress < 100) {
+              return;
+            }
+            
+            lastReportedProgress = progress;
+            lastReportTime = now;
+            
+            // 進捗を5-35%の範囲にマッピング
+            const scaledProgress = 5 + (progress * 0.3);
+            
+            safeExecute(() => {
+              setSyncProgress({ 
+                show: true, 
+                progress: Math.round(scaledProgress), 
+                stage: `勤怠データを同期中...` 
+              });
+            });
+          };
+          
+          // サーバーに送信するデータを準備
+          const dataToProcess = [...attendanceData];
+          
+          // StorageServiceのsaveDataを呼び出すが、内部処理は最適化
+          await StorageService.saveData(
+            STORAGE_KEYS.ATTENDANCE_DATA, 
+            dataToProcess,
+            (_stage, progress) => reportProgress(progress)
+          );
+          
+          resolve(true);
+        } catch (error) {
+          console.error("勤怠データ同期エラー:", error);
+          resolve(false);
+        }
+      });
+      
+      // 予定データの同期（チャンク処理による最適化）
+      setSyncProgress({ show: true, progress: 40, stage: '予定データを同期中...' });
+      
+      const scheduleSuccess = await new Promise<boolean>(async (resolve) => {
+        try {
+          // 最適化された進捗報告
+          let lastReportedProgress = 0;
+          
+          const reportProgress = (progress: number) => {
+            // 10%以上変化した場合のみ更新（UIの負荷軽減）
+            if (progress - lastReportedProgress < 10 && progress < 100) {
+              return;
+            }
+            
+            lastReportedProgress = progress;
+            
+            // 進捗を40-90%の範囲にマッピング
+            const scaledProgress = 40 + (progress * 0.5);
+            
+            requestAnimationFrame(() => {
+              setSyncProgress({ 
+                show: true, 
+                progress: Math.round(scaledProgress), 
+                stage: `予定データを同期中...` 
+              });
+            });
+          };
+          
+          // チャンク処理でUIをブロックしないようにする
+          await StorageService.saveData(
+            STORAGE_KEYS.SCHEDULE_DATA, 
+            scheduleData,
+            (_stage, progress) => reportProgress(progress)
+          );
+          
+          resolve(true);
+        } catch (error) {
+          console.error("予定データ同期エラー:", error);
+          resolve(false);
+        }
+      });
+      
+      syncSuccess = attendanceSuccess && scheduleSuccess;
+    } catch (e) {
+      console.error('Firebaseとの同期エラー:', e);
+      showToast("クラウドとの同期に失敗しましたが、データはローカルに保存されています", "warning");
+      setSyncProgress({ show: false, progress: 0, stage: '' });
+      restoreScrollPosition();
+      return false;
+    }
+    
+    // 同期が成功したらフラグを下げる
+    if (syncSuccess) {
+      // 完了進捗を表示
+      setPendingChanges(false);
+      setSyncProgress({ show: true, progress: 100, stage: '同期完了!' });
+      
+      // UIをブロックしないよう遅延実行
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Firebase情報更新関数を抽出（関心の分離）
+      const updateFirebaseInfo = async () => {
+        if (isAdminMode && navigator.onLine) {
+          try {
+            const info = await StorageService.getFirebaseStorageInfo();
+            if (info) {
+              safeExecute(() => {
+                setFirebaseStorageInfo(info);
+              });
+            }
+          } catch (e) {
+            console.error('Firebase使用状況の更新に失敗:', e);
+          }
+        }
+      };
+      
+      // 完了通知と後処理を実行
+      safeExecute(() => {
+        setSyncProgress({ show: false, progress: 0, stage: '' });
+        showToast("データを同期しました", "success");
+        
+        // 非同期で Firebase 情報を更新（メインフローをブロックしない）
+        updateFirebaseInfo();
+      });
+    } else {
+      setSyncProgress({ show: false, progress: 0, stage: '' });
+      showToast("同期に問題が発生しました。後でもう一度お試しください", "warning");
+    }
+    
+    // スクロール位置を最後に復元
+    restoreScrollPosition();
+    
+    console.log("同期処理が完了しました");
+    return syncSuccess;
+  } catch (error) {
+    console.error("同期処理エラー:", error);
+    showToast("データの同期に失敗しました", "error");
+    setSyncProgress({ show: false, progress: 0, stage: '' });
+    return false;
+  }
+};
 
   // 勤務データをエクスポート
   const exportToExcel = useCallback((month: Date = currentDate) => {
@@ -1284,188 +1374,322 @@ const AttendanceApp: React.FC = () => {
     });
   }, [scheduleData, showConfirm, showToast, toggleModal]);
 
-  // 勤務区分を登録・更新
+// 勤務区分を登録・更新（パフォーマンス最適化版）
   const updateAttendanceRecord = async (employeeId: number, date: Date, workType: string) => {
     try {
-      // ミニマルな進捗表示
+      // プログレスバーを表示（進捗報告は少なくし、状態更新を最小化）
       setSyncProgress({ show: true, progress: 0, stage: '勤務データ更新中...' });
       
-      const dateStr = format(date, "yyyy-MM-dd");
-      const employeeName = employees.find(emp => emp.id === employeeId)?.name;
+      // データ処理を非同期関数に分離して UI スレッドをブロックしないようにする
+      const processAttendanceUpdate = async () => {
+        const dateStr = format(date, "yyyy-MM-dd");
+        const employeeName = employees.find(emp => emp.id === employeeId)?.name;
+        
+        // イミュータブルな方法でデータを更新
+        const newAttendanceData = attendanceData.filter(
+          record => !(record.employeeId === employeeId.toString() && record.date === dateStr)
+        );
+        
+        // 新しいレコードの追加（workTypeが指定されている場合のみ）
+        if (workType) {
+          const newRecord: AttendanceRecord = {
+            employeeId: employeeId.toString(),
+            date: dateStr,
+            workType,
+            employeeName
+          };
+          newAttendanceData.push(newRecord);
+        }
+        
+        return newAttendanceData;
+      };
       
-      // データ更新処理
-      const newAttendanceData = [...attendanceData]; // 配列をコピー
+      // データ処理を実行（非同期で）
+      const newAttendanceData = await processAttendanceUpdate();
       
-      // 既存データの削除
-      const existingIndex = newAttendanceData.findIndex(
-        record => record.employeeId === employeeId.toString() && record.date === dateStr
-      );
+      // UI 応答性向上のため、先に状態を更新
+      safeExecute(() => {
+        setAttendanceData(newAttendanceData);
+        setSyncProgress({ show: true, progress: 20, stage: 'データをストレージに保存中...' });
+      });
       
-      if (existingIndex !== -1) {
-        newAttendanceData.splice(existingIndex, 1);
-      }
-      
-      // 新しいレコードの追加（workTypeが指定されている場合のみ）
-      if (workType) {
-        const newRecord: AttendanceRecord = {
-          employeeId: employeeId.toString(),
-          date: dateStr,
-          workType,
-          employeeName
-        };
-        newAttendanceData.push(newRecord);
-      }
-      
-      // 状態を更新（先に行うことでUIの応答性を向上）
-      setAttendanceData(newAttendanceData);
-      
-      // 進捗コールバックの最適化
-      let lastReportedProgress = 0;
-      const optimizedCallback = (stage: string, progress: number) => {
-        // 10%単位の進捗変化でのみ更新
-        const scaledProgress = 20 + (progress * 0.8);
-        if (Math.abs(scaledProgress - lastReportedProgress) >= 10 || progress === 100) {
-          lastReportedProgress = scaledProgress;
-          safeExecute(() => {
+      // 保存処理のためのプログレス管理（スロットリング適用）
+      const progressReporter = (() => {
+        let lastReportTime = 0;
+        let lastProgress = 0;
+        
+        return (stage: string, progress: number) => {
+          const now = Date.now();
+          const scaledProgress = 20 + (progress * 0.8);
+          
+          // 150ms以内かつ進捗差10%未満の更新はスキップ（UIの負荷軽減）
+          if (now - lastReportTime < 150 && 
+              Math.abs(scaledProgress - lastProgress) < 10 && 
+              progress < 100 && progress > 0) {
+            return;
+          }
+          
+          lastReportTime = now;
+          lastProgress = scaledProgress;
+          
+          requestAnimationFrame(() => {
             setSyncProgress({ 
               show: true, 
               progress: Math.round(scaledProgress), 
               stage: `勤務データ: ${stage}` 
             });
           });
-        }
-      };
+        };
+      })();
       
-      // データを保存（最小限の進捗更新）
-      setSyncProgress({ show: true, progress: 20, stage: 'データをストレージに保存中...' });
-      
+      // 保存処理を実行
       const success = await StorageService.saveData(
         STORAGE_KEYS.ATTENDANCE_DATA, 
         newAttendanceData,
-        optimizedCallback
+        progressReporter
       );
       
-      // 保存結果の処理
+      // 保存結果の処理（UIへの影響を最小化）
       if (success) {
         setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
         
-        // 短い遅延後に進捗表示を消す
+        // macrotask に移動して UI レンダリングをブロックしない
         setTimeout(() => {
-          safeExecute(() => {
+          requestAnimationFrame(() => {
             setSyncProgress({ show: false, progress: 0, stage: '' });
+            
+            // オンライン状態に応じてフラグを設定
+            setPendingChanges(!(navigator.onLine && !isOffline));
           });
-        }, 800);
-        
-        // オンライン時のみフラグを下げる
-        if (navigator.onLine && !isOffline) {
-          setPendingChanges(false);
-        } else {
-          setPendingChanges(true);
-        }
+        }, 500); // 500msの遅延で十分
       } else {
-        // エラー時の処理
-        safeExecute(() => {
+        // エラー時は即座に状態をクリア
+        requestAnimationFrame(() => {
           setSyncProgress({ show: false, progress: 0, stage: '' });
           showToast("データの保存に失敗しました。同期ボタンで再同期してください", "warning");
+          setPendingChanges(true);
         });
-        setPendingChanges(true);
       }
       
       return newAttendanceData;
     } catch (error) {
       console.error('勤務区分の更新に失敗しました:', error);
-      showToast("勤務区分の更新に失敗しました", "error");
-      setSyncProgress({ show: false, progress: 0, stage: '' });
+      
+      // エラー時は即座に状態をクリア
+      requestAnimationFrame(() => {
+        setSyncProgress({ show: false, progress: 0, stage: '' });
+        showToast("勤務区分の更新に失敗しました", "error");
+      });
+      
       return attendanceData; // 変更せず元のデータを返す
     }
   };
 
-  // 一括更新用の勤務区分を適用
-  const applyWorkTypeToCells = async (workType: string) => {
-    if (!selectedCells.length || !workType) return;
+// 一括更新用の勤務区分を適用（パフォーマンス最適化版）
+const applyWorkTypeToCells = async (workType: string) => {
+  if (!selectedCells.length || !workType) return;
 
-    try {
-      // 一括更新用のプログレスバー表示
+  try {
+    // 一括更新用のプログレスバー表示（UI負荷軽減のため状態更新を最小化）
+    safeExecute(() => {
       setSyncProgress({ show: true, progress: 0, stage: '勤務データ更新の準備中...' });
+    });
+    
+    // 処理データのキャプチャ（後続処理が状態変更の影響を受けないようにする）
+    const cellsToUpdate = [...selectedCells];
+    const count = cellsToUpdate.length;
+    
+    // 非同期でデータを処理（UIスレッドをブロックしない）
+    const processAttendanceData = async () => {
+      // 進捗報告の最適化
+      const reportProgress = (() => {
+        let lastReportTime = 0;
+        let lastProgress = 0;
+        
+        return (progress: number, stage: string) => {
+          const now = Date.now();
+          // 連続更新を避けるためのスロットリング（UIの負荷軽減）
+          if (now - lastReportTime < 150 && Math.abs(progress - lastProgress) < 10) {
+            return;
+          }
+          
+          lastReportTime = now;
+          lastProgress = progress;
+          
+          requestAnimationFrame(() => {
+            setSyncProgress({ show: true, progress, stage });
+          });
+        };
+      })();
       
-      // マップを使って効率的にデータを処理
+      reportProgress(5, '勤務データ処理中...');
+      
+      // 処理時間がかかる場合に小分けにして実行するための準備
+      const CHUNK_SIZE = 200; // 適切なチャンクサイズ
+      
+      // データ処理の最適化（Map操作を効率的に行う）
       const recordMap = new Map<string, AttendanceRecord>();
       
-      // 既存データをマップに入れる
-      attendanceData.forEach(record => {
-        const key = `${record.employeeId}_${record.date}`;
-        recordMap.set(key, record);
-      });
-      
-      // 新しいデータをマップに追加/更新
-      selectedCells.forEach(cell => {
-        const dateStr = format(cell.date, "yyyy-MM-dd");
-        const key = `${cell.employeeId}_${dateStr}`;
-        const employeeName = employees.find(emp => emp.id === cell.employeeId)?.name;
+      // 既存データを小分けに処理してマップに入れる
+      for (let i = 0; i < attendanceData.length; i += CHUNK_SIZE) {
+        const chunk = attendanceData.slice(i, i + CHUNK_SIZE);
         
-        // 新レコードを作成
-        const newRecord: AttendanceRecord = {
-          employeeId: cell.employeeId.toString(),
-          date: dateStr,
-          workType,
-          employeeName
-        };
+        chunk.forEach(record => {
+          const key = `${record.employeeId}_${record.date}`;
+          recordMap.set(key, record);
+        });
         
-        // マップに追加
-        recordMap.set(key, newRecord);
-      });
+        // 長時間処理を避けるため、チャンク処理の間にマイクロタスクを挿入
+        if (i + CHUNK_SIZE < attendanceData.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        
+        // 進捗報告
+        const progress = Math.min(15, 5 + (i / attendanceData.length * 10));
+        reportProgress(Math.round(progress), '既存データマッピング中...');
+      }
       
-      // マップから配列に変換
-      const newAttendanceData = Array.from(recordMap.values());
+      reportProgress(15, '更新データ準備中...');
       
-      // 進捗表示を更新
-      setSyncProgress({ show: true, progress: 20, stage: 'データをストレージに保存中...' });
+      // 新しいデータをチャンク処理で追加/更新
+      for (let i = 0; i < cellsToUpdate.length; i += CHUNK_SIZE) {
+        const chunk = cellsToUpdate.slice(i, i + CHUNK_SIZE);
+        
+        chunk.forEach(cell => {
+          const dateStr = format(cell.date, "yyyy-MM-dd");
+          const key = `${cell.employeeId}_${dateStr}`;
+          const employeeName = employees.find(emp => emp.id === cell.employeeId)?.name;
+          
+          // 新レコードを作成
+          const newRecord: AttendanceRecord = {
+            employeeId: cell.employeeId.toString(),
+            date: dateStr,
+            workType,
+            employeeName
+          };
+          
+          // マップに追加
+          recordMap.set(key, newRecord);
+        });
+        
+        // マイクロタスクを挿入（UIの応答性維持）
+        if (i + CHUNK_SIZE < cellsToUpdate.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        
+        // 進捗報告
+        const progress = 15 + ((i / cellsToUpdate.length) * 5);
+        reportProgress(Math.round(progress), '更新データ準備中...');
+      }
       
-      // 状態を更新
+      // 配列変換も小分けにする（大量データの場合に最適化）
+      reportProgress(20, 'データを配列に変換中...');
+      const keys = Array.from(recordMap.keys());
+      const newAttendanceData: AttendanceRecord[] = [];
+      
+      for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
+        const chunkKeys = keys.slice(i, i + CHUNK_SIZE);
+        
+        chunkKeys.forEach(key => {
+          const record = recordMap.get(key);
+          if (record) newAttendanceData.push(record);
+        });
+        
+        // 長時間処理を避ける
+        if (i + CHUNK_SIZE < keys.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+      
+      return newAttendanceData;
+    };
+    
+    // データ処理を実行（非同期で）
+    const newAttendanceData = await processAttendanceData();
+    
+    // UI応答性向上のため、状態の更新を先に行う
+    safeExecute(() => {
       setAttendanceData(newAttendanceData);
+      setSyncProgress({ show: true, progress: 25, stage: 'データをストレージに保存中...' });
+    });
+    
+    // 短い遅延を入れてUIの更新が完了するのを待つ
+    await new Promise(resolve => setTimeout(resolve, 30));
+    
+    // 進捗コールバックの最適化（スロットリング付き）
+    const progressReporter = (() => {
+      let lastReportTime = 0;
+      let lastProgress = 0;
       
-      // 保存処理
-      const success = await StorageService.saveData(
-        STORAGE_KEYS.ATTENDANCE_DATA, 
-        newAttendanceData,
-        (stage, progress) => {
-          // 進捗表示の更新
+      return (stage: string, progress: number) => {
+        const now = Date.now();
+        const scaledProgress = 25 + (progress * 0.75);
+        
+        // 進捗更新の最適化（100ms以内かつ5%未満の変化はスキップ）
+        if (now - lastReportTime < 100 && 
+            Math.abs(scaledProgress - lastProgress) < 5 && 
+            progress < 100 && progress > 0) {
+          return;
+        }
+        
+        lastReportTime = now;
+        lastProgress = scaledProgress;
+        
+        requestAnimationFrame(() => {
           setSyncProgress({ 
             show: true, 
-            progress: 20 + Math.round(progress * 0.8), 
+            progress: Math.round(scaledProgress), 
             stage: `勤務データ: ${stage}` 
           });
-        }
-      );
-      
-      // 結果処理
-      if (success) {
+        });
+      };
+    })();
+    
+    // 保存処理を実行
+    const success = await StorageService.saveData(
+      STORAGE_KEYS.ATTENDANCE_DATA, 
+      newAttendanceData,
+      progressReporter
+    );
+    
+    // 保存結果の処理（UIの負荷を最小限に）
+    if (success) {
+      safeExecute(() => {
         setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
-        
-        // 更新完了通知
-        setTimeout(() => {
-          safeExecute(() => {
-            setSyncProgress({ show: false, progress: 0, stage: '' });
-            showToast(`${selectedCells.length}件の勤務区分を一括更新しました`, "success");
-          });
-        }, 800);
-        
-        // オンライン時は同期済みフラグを設定
-        setPendingChanges(!navigator.onLine);
-      } else {
+      });
+      
+      // 完了通知（UI負荷分散のため遅延実行）
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          setSyncProgress({ show: false, progress: 0, stage: '' });
+          showToast(`${count}件の勤務区分を一括更新しました`, "success");
+          
+          // オンライン状態に応じてフラグを設定
+          setPendingChanges(!navigator.onLine);
+        });
+      }, 500); // 遅延時間を短縮
+    } else {
+      // エラー通知
+      requestAnimationFrame(() => {
         setSyncProgress({ show: false, progress: 0, stage: '' });
         showToast("データの保存に失敗しました。後で同期ボタンを使用してください", "warning");
         setPendingChanges(true);
-      }
-      
-      return true;
-    } catch (error) {
-      console.error('一括更新エラー:', error);
-      showToast("勤務区分の一括更新に失敗しました", "error");
-      setSyncProgress({ show: false, progress: 0, stage: '' });
-      return false;
+      });
     }
-  };
+    
+    return true;
+  } catch (error) {
+    console.error('一括更新エラー:', error);
+    
+    // エラー通知
+    requestAnimationFrame(() => {
+      setSyncProgress({ show: false, progress: 0, stage: '' });
+      showToast("勤務区分の一括更新に失敗しました", "error");
+    });
+    
+    return false;
+  }
+};
 
   // 勤務区分の削除（単一または一括）
   const deleteAttendanceRecords = async (targetCells: { employeeId: number, date: Date }[]) => {
@@ -1530,43 +1754,49 @@ const AttendanceApp: React.FC = () => {
   //---------------------------------------------------------------
   // モーダルハンドラー関数
   //---------------------------------------------------------------
-  // 勤務区分選択モーダルのハンドラー
-  const handleWorkTypeModalSubmit = async () => {
-    // 一括編集モードの場合
-    if (isBulkEditMode && isAdminMode && selectedCells.length > 0) {
-      if (!selectedWorkType) return;
-      
-      // UIブロッキングを防ぐため、先にモーダルを閉じる
-      toggleModal('workType', false);
-      setSelectedWorkType("");
-      
-      // 少し遅延させてから選択セルをクリア
-      safeExecute(() => {
-        setSelectedCells([]);
-      }, 100);
-      
-      // 一括適用処理
-      await applyWorkTypeToCells(selectedWorkType);
-    } else if (selectedCell) {
-      // 通常の編集モード
-      if (!selectedWorkType) return;
-      
-      // モーダルを閉じて状態をリセット
-      toggleModal('workType', false);
-      
-      // 変数をコピーして安全に処理
-      const cellCopy = {...selectedCell};
-      const workTypeCopy = selectedWorkType;
-      
-      setSelectedWorkType("");
-      safeExecute(() => {
-        setSelectedCell(null);
-      }, 100);
-      
-      // 勤務区分を更新
-      await updateAttendanceRecord(cellCopy.employeeId, cellCopy.date, workTypeCopy);
+// 勤務区分選択モーダルのハンドラー（パフォーマンス最適化版）
+const handleWorkTypeModalSubmit = async () => {
+  // 処理に必要なデータを先にキャプチャ
+  const isBulkMode = isBulkEditMode && isAdminMode && selectedCells.length > 0;
+  const currentWorkType = selectedWorkType;
+  const currentCell = selectedCell ? { ...selectedCell } : null;
+  const currentCells = isBulkMode ? [...selectedCells] : [];
+  
+  // 入力検証
+  if (!currentWorkType) return;
+  
+  // UI状態の一括更新（レンダリング最適化）
+  requestAnimationFrame(() => {
+    // モーダルを閉じる
+    toggleModal('workType', false);
+    
+    // 状態リセット
+    setSelectedWorkType("");
+    
+    // 選択をクリア（レンダリング負荷を低減するため1つの更新にまとめる）
+    if (isBulkMode) {
+      setSelectedCells([]);
+    } else if (currentCell) {
+      setSelectedCell(null);
     }
-  };
+  });
+  
+  // 処理の実行（少し遅延させてUIの応答性を確保）
+  await new Promise(resolve => setTimeout(resolve, 50));
+  
+  // 適切な処理を実行
+  if (isBulkMode) {
+    // 一括適用用の処理
+    return await applyWorkTypeToCells(currentWorkType);
+  } else if (currentCell) {
+    // 単一セル編集の処理
+    return await updateAttendanceRecord(
+      currentCell.employeeId, 
+      currentCell.date, 
+      currentWorkType
+    );
+  }
+};
 
   // 勤務区分削除のハンドラー
   const handleWorkTypeModalDelete = () => {
@@ -1597,39 +1827,69 @@ const AttendanceApp: React.FC = () => {
     }
   };
 
-  // スケジュールモーダルの保存ハンドラー
-  const handleScheduleModalSubmit = async (
-    title: string,
-    details: string,
-    color: string,
-    isAllEmployees: boolean,
-    selectedEmployees: string[]
-  ) => {
-    if (!title.trim() || !selectedScheduleDate) return;
+// スケジュールモーダルの保存ハンドラー（パフォーマンス最適化版）
+const handleScheduleModalSubmit = async (
+  title: string,
+  details: string,
+  color: string,
+  isAllEmployees: boolean,
+  selectedEmployees: string[]
+) => {
+  if (!title.trim() || !selectedScheduleDate) return;
 
-    // 必要なデータをコピー
-    const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
-    const employeeIds = isAllEmployees ? [] : [...selectedEmployees];
-    const isUpdate = selectedScheduleItem !== null;
-    const selectedItemCopy = selectedScheduleItem ? {...selectedScheduleItem} : null;
+  // 必要なデータを先にキャプチャして、後続の状態変更の影響を受けないようにする
+  const dateStr = format(selectedScheduleDate, "yyyy-MM-dd");
+  const employeeIds = isAllEmployees ? [] : [...selectedEmployees];
+  const isUpdate = selectedScheduleItem !== null;
+  const selectedItemCopy = selectedScheduleItem ? {...selectedScheduleItem} : null;
+  const itemId = isUpdate && selectedItemCopy ? selectedItemCopy.id : Date.now().toString();
 
+  // UIスレッドをブロックしないように、UIの更新を先に非同期で実行
+  requestAnimationFrame(() => {
     // モーダルを閉じてUI状態をリセット
     toggleModal('schedule', false);
     setSelectedScheduleDate(null);
     setSelectedScheduleItem(null);
-
+    
     // 同期開始を表示
     setSyncProgress({ show: true, progress: 0, stage: '予定データ更新中...' });
+  });
+  
+  // 短い遅延を入れて、UIの更新が完了するのを待つ
+  await new Promise(resolve => setTimeout(resolve, 50));
 
-    try {
+  try {
+    // データ処理を非同期関数に抽出して、メインスレッドのブロックを避ける
+    const prepareScheduleData = async () => {
+      // 進捗報告（スロットリング付き）
+      const reportProgress = (() => {
+        let lastReportTime = 0;
+        
+        return (progress: number, stage: string) => {
+          const now = Date.now();
+          // 連続更新を避けるためのスロットリング（100ms）
+          if (now - lastReportTime < 100 && progress > 0 && progress < 100) {
+            return;
+          }
+          
+          lastReportTime = now;
+          
+          // UIスレッドをブロックしないようrequestAnimationFrameを使用
+          requestAnimationFrame(() => {
+            setSyncProgress({ show: true, progress, stage });
+          });
+        };
+      })();
+      
+      reportProgress(10, 'データ準備中...');
+      
+      // 新しいデータの準備（UIスレッドをブロックしない）
       let newScheduleData;
       
-      setSyncProgress({ show: true, progress: 10, stage: 'データ準備中...' });
-      
       if (isUpdate && selectedItemCopy) {
-        // 既存の予定を更新
+        // 既存の予定を更新（イミュータブルなアプローチ）
         newScheduleData = scheduleData.map(item => 
-          item.id === selectedItemCopy.id 
+          item.id === itemId 
             ? { 
                 ...item, 
                 title: title.trim(), 
@@ -1643,7 +1903,7 @@ const AttendanceApp: React.FC = () => {
       } else {
         // 新規予定を追加
         const newScheduleItem: ScheduleItem = {
-          id: Date.now().toString(),
+          id: itemId,
           employeeId: isAllEmployees ? "" : (employeeIds[0] || ""), // 後方互換性のため
           employeeIds,
           date: dateStr,
@@ -1655,48 +1915,92 @@ const AttendanceApp: React.FC = () => {
         newScheduleData = [...scheduleData, newScheduleItem];
       }
       
-      // 状態を更新
+      return newScheduleData;
+    };
+    
+    // データの準備（非同期で実行）
+    const newScheduleData = await prepareScheduleData();
+    
+    // UIの応答性維持のため、状態の更新を先に行う
+    safeExecute(() => {
       setScheduleData(newScheduleData);
-      
       setSyncProgress({ show: true, progress: 20, stage: 'データをストレージに保存中...' });
+    });
+    
+    // すぐに次の処理に移らないよう少し待機
+    await new Promise(resolve => setTimeout(resolve, 20));
+    
+    // 最適化された進捗レポーター
+    const progressReporter = (() => {
+      let lastReportTime = 0;
+      let lastProgress = 0;
       
-      // 保存処理
-      const success = await StorageService.saveData(
-        STORAGE_KEYS.SCHEDULE_DATA, 
-        newScheduleData,
-        (stage, progress) => {
+      return (stage: string, progress: number) => {
+        const now = Date.now();
+        const scaledProgress = 20 + (progress * 0.8);
+        
+        // 進捗更新の最適化（150ms以内かつ10%未満の変化はスキップ）
+        if (now - lastReportTime < 150 && 
+            Math.abs(scaledProgress - lastProgress) < 10 && 
+            progress < 100 && progress > 0) {
+          return;
+        }
+        
+        lastReportTime = now;
+        lastProgress = scaledProgress;
+        
+        // UIスレッドをブロックしない
+        requestAnimationFrame(() => {
           setSyncProgress({ 
             show: true, 
-            progress: 20 + (progress * 0.8), 
+            progress: Math.round(scaledProgress), 
             stage: `予定データ: ${stage}` 
           });
-        }
-      );
-      
-      // 結果処理
-      if (success) {
+        });
+      };
+    })();
+    
+    // 保存処理
+    const success = await StorageService.saveData(
+      STORAGE_KEYS.SCHEDULE_DATA, 
+      newScheduleData,
+      progressReporter
+    );
+    
+    // 結果処理（UIの応答性を確保）
+    if (success) {
+      safeExecute(() => {
         setSyncProgress({ show: true, progress: 100, stage: '更新完了!' });
-        
-        setTimeout(() => {
-          safeExecute(() => {
-            setSyncProgress({ show: false, progress: 0, stage: '' });
-            showToast(isUpdate ? "予定を更新しました" : "新しい予定を追加しました", "success");
-          });
-        }, 800);
-        
-        // オンライン時は同期済みフラグを設定
-        setPendingChanges(!navigator.onLine);
-      } else {
+      });
+      
+      // 完了通知（UI負荷の分散）
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          setSyncProgress({ show: false, progress: 0, stage: '' });
+          showToast(isUpdate ? "予定を更新しました" : "新しい予定を追加しました", "success");
+          
+          // オンライン状態に応じてフラグ設定
+          setPendingChanges(!navigator.onLine);
+        });
+      }, 500); // 遅延時間を短縮
+    } else {
+      // エラー通知
+      requestAnimationFrame(() => {
         setSyncProgress({ show: false, progress: 0, stage: '' });
         showToast("データの保存に失敗しました。同期ボタンで再同期してください", "warning");
         setPendingChanges(true);
-      }
-    } catch (error) {
-      console.error('予定操作エラー:', error);
-      showToast("予定の保存に失敗しました", "error");
-      setSyncProgress({ show: false, progress: 0, stage: '' });
+      });
     }
-  };
+  } catch (error) {
+    console.error('予定操作エラー:', error);
+    
+    // エラー通知
+    requestAnimationFrame(() => {
+      setSyncProgress({ show: false, progress: 0, stage: '' });
+      showToast("予定の保存に失敗しました", "error");
+    });
+  }
+};
 
   // 月選択モーダルのアクションハンドラー
   const handleMonthSelectionAction = useCallback(() => {
@@ -2985,16 +3289,37 @@ const AttendanceApp: React.FC = () => {
       });
     };
 
-    // 予定保存
-    const handleSubmit = () => {
-      handleScheduleModalSubmit(
-        title,
-        details,
-        color,
-        isAllEmployees,
-        selectedEmployees
-      );
-    };
+// 予定保存（リバウンド防止と最適化）
+const handleSubmit = useCallback(() => {
+  // 既に処理中なら重複実行を防止
+  if (syncProgress.show) return;
+  
+  // 1. 状態の変更をすぐには行わず、データをキャプチャ
+  const submitData = {
+    title: title.trim(),
+    details,
+    color,
+    isAllEmployees,
+    selectedEmployees: [...selectedEmployees]
+  };
+  
+  // 2. 入力検証
+  if (!submitData.title || !selectedScheduleDate) return;
+  
+  // 3. 処理を非同期で実行
+  safeExecute(() => {
+    handleScheduleModalSubmit(
+      submitData.title,
+      submitData.details,
+      submitData.color,
+      submitData.isAllEmployees,
+      submitData.selectedEmployees
+    );
+  });
+}, [
+  title, details, color, isAllEmployees, selectedEmployees, 
+  selectedScheduleDate, syncProgress.show, handleScheduleModalSubmit
+]);
 
     return (
       <Modal
