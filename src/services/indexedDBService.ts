@@ -123,95 +123,76 @@ export const IndexedDBService = {
       }
     }
   },
+
+// 勤怠データ保存（トランザクション安定性の改善版）
+async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
+  if (!data || data.length === 0) return true;
   
-  // 勤怠データ保存（効率化版 - パフォーマンス最適化）
-  async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
-    if (!data || data.length === 0) return true;
+  try {
+    const db = await this.initDB();
+    const CHUNK_SIZE = 50; // 小さくして安定性向上
+    let success = true;
+    let addedCount = 0;
     
-    try {
-      const db = await this.initDB();
+    // 各チャンクごとに独立したトランザクションを使用
+    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+      const chunk = data.slice(i, Math.min(i + CHUNK_SIZE, data.length));
       
-      // メインスレッドをブロックしないようにするための最適化
-      return new Promise(async (outerResolve) => {
+      // 各チャンクで新しいトランザクションを作成
+      await new Promise<void>((resolve, reject) => {
         try {
-          // 大量データを扱う場合はクリアせずに差分更新を行う最適化
-          const CHUNK_SIZE = 250; // より大きなチャンクサイズ
-          let addedCount = 0;
-          
-          // トランザクションを一度だけ作成（複数トランザクションの作成を避ける）
           const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
           const store = transaction.objectStore(STORES.ATTENDANCE);
           
-          // トランザクションコールバック
           transaction.oncomplete = () => {
-            logInfo(`IndexedDB: ${addedCount}件の勤怠データを保存しました`);
-            outerResolve(true);
+            resolve();
           };
           
-          transaction.onerror = (event) => {
-            logError('IndexedDB勤怠データ保存トランザクションエラー:', event);
-            outerResolve(addedCount > 0); // 一部でも保存できていればtrueを返す
+          transaction.onerror = (e) => {
+            logError('チャンク保存エラー:', e);
+            success = false;
+            resolve(); // エラーでも継続
           };
           
-          // 既存データを削除するかを判断
-          // 既存データとの差分が大きい場合のみクリア
-          if (data.length > 1000) {
+          // 同一トランザクション内ですべての操作を完了
+          chunk.forEach(record => {
             try {
-              await new Promise<void>((resolve, reject) => {
-                const clearRequest = store.clear();
-                clearRequest.onsuccess = () => resolve();
-                clearRequest.onerror = (e) => {
-                  logError('store.clear() エラー:', e);
-                  resolve(); // エラーでも継続
-                };
-              });
+              const recordWithId = {
+                ...record,
+                id: record.employeeId && record.date 
+                  ? `${record.employeeId}_${record.date}`
+                  : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+              };
+              
+              const putRequest = store.put(recordWithId);
+              putRequest.onsuccess = () => {
+                addedCount++;
+              };
+              putRequest.onerror = (e) => {
+                logError('レコード保存エラー:', e);
+              };
             } catch (e) {
-              logError('クリア操作エラー:', e);
-              // エラーでも処理継続
+              logError('putリクエスト作成エラー:', e);
             }
-          }
-          
-          // データをチャンクに分割して処理
-          await this.processInChunks(data, CHUNK_SIZE, async (chunk) => {
-            // 各チャンク内のレコードを並列処理
-            const promises = chunk.map(record => {
-              return new Promise<void>(resolve => {
-                try {
-                  const recordWithId = {
-                    ...record,
-                    id: record.employeeId && record.date 
-                      ? `${record.employeeId}_${record.date}`
-                      : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
-                  };
-                  
-                  const putRequest = store.put(recordWithId);
-                  putRequest.onsuccess = () => {
-                    addedCount++;
-                    resolve();
-                  };
-                  putRequest.onerror = (e) => {
-                    logError('データ保存エラー:', e);
-                    resolve(); // エラーでも処理続行
-                  };
-                } catch (e) {
-                  logError('putリクエスト作成エラー:', e);
-                  resolve(); // エラーでも処理続行
-                }
-              });
-            });
-            
-            await Promise.all(promises);
           });
-        } catch (innerError) {
-          logError('IndexedDB chunked save error:', innerError);
-          outerResolve(false);
+        } catch (txError) {
+          logError('トランザクション作成エラー:', txError);
+          success = false;
+          resolve();
         }
       });
-    } catch (error) {
-      logError('IndexedDB初期化エラー:', error);
-      return false;
+      
+      // チャンク間でメインスレッドを解放
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
-  },
+    
+    logInfo(`IndexedDB: ${addedCount}件の勤怠データを保存しました`);
+    return success;
+  } catch (error) {
+    logError('IndexedDB初期化エラー:', error);
+    return false;
+  }
+},
   
   // 勤怠データ取得（最適化版）
   async getAttendanceData(): Promise<AttendanceRecord[]> {

@@ -125,49 +125,22 @@ export const StorageService = {
     }
   },
   
-  // データ保存の最適化バージョン
-  async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
-    // 進捗報告を最適化（頻度を下げてパフォーマンスを向上）
-    let progressUpdateTime = 0;
-    const PROGRESS_THROTTLE = 150; // ms
+// データ保存の安定性改善版
+async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
+  try {
+    // ローカルストレージへの保存（最優先で実行）
+    if (progressCallback) progressCallback('ローカルストレージに保存中...', 10);
+    const localStorageSuccess = await this.saveToLocalStorage(key, data);
     
-    const throttledProgressUpdate = (stage: string, progress: number) => {
-      if (!progressCallback) return;
-      
-      const now = Date.now();
-      if (now - progressUpdateTime < PROGRESS_THROTTLE && progress > 0 && progress < 100) {
-        return;
-      }
-      
-      progressUpdateTime = now;
-      progressCallback(stage, progress);
-    };
+    if (progressCallback) progressCallback('ローカルストレージ完了', 30);
     
-    let totalSteps = 1; // ローカルストレージは常に使用
-    if (USE_INDEXED_DB) totalSteps++;
-    if (USE_FIREBASE && navigator.onLine) totalSteps++;
+    // メインスレッドをブロックしないよう制御を戻す
+    await new Promise(resolve => setTimeout(resolve, 10));
     
-    let currentStep = 0;
-    
-    // LocalStorage保存 - 非同期化して UI ブロッキングを防止
-    let localStorageSuccess = false;
-    throttledProgressUpdate('ローカルストレージに保存中...', 0);
-    
-    try {
-      localStorageSuccess = await this.saveToLocalStorage(key, data);
-      currentStep++;
-      throttledProgressUpdate('ローカルストレージ', 100 * (currentStep / totalSteps));
-      
-      // メインスレッドをブロックしないよう一時的に制御を戻す
-      await yieldToMain();
-    } catch (error) {
-      logError(`ローカルストレージへの保存に失敗しました: ${key}`, error);
-    }
-    
-    // IndexedDB保存
+    // IndexedDBへの保存
     let indexedDBSuccess = false;
     if (USE_INDEXED_DB) {
-      throttledProgressUpdate('IndexedDBに保存中...', 100 * (currentStep / totalSteps));
+      if (progressCallback) progressCallback('IndexedDBに保存中...', 40);
       
       try {
         // 主要データはIndexedDBにも保存
@@ -180,11 +153,10 @@ export const StorageService = {
           indexedDBSuccess = await IndexedDBService.saveSetting(key, data);
         }
         
-        currentStep++;
-        throttledProgressUpdate('IndexedDB完了', 100 * (currentStep / totalSteps));
+        if (progressCallback) progressCallback('IndexedDB完了', 60);
         
         // UIブロッキングを防止
-        await yieldToMain();
+        await new Promise(resolve => setTimeout(resolve, 10));
       } catch (error) {
         logError(`IndexedDBへの保存に失敗しました: ${key}`, error);
       }
@@ -193,29 +165,25 @@ export const StorageService = {
     // Firebase保存（オンライン時のみ）
     let firebaseSuccess = false;
     if (USE_FIREBASE && navigator.onLine) {
-      throttledProgressUpdate('Firebaseに保存中...', 100 * (currentStep / totalSteps));
+      if (progressCallback) progressCallback('Firebaseに保存中...', 70);
       
       try {
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
-            await FirebaseService.saveAttendanceData(data as any);
-            firebaseSuccess = true;
+            firebaseSuccess = await FirebaseService.saveAttendanceData(data as any);
             break;
           case STORAGE_KEYS.SCHEDULE_DATA:
-            await FirebaseService.saveScheduleData(data as any);
-            firebaseSuccess = true;
+            firebaseSuccess = await FirebaseService.saveScheduleData(data as any);
             break;
           case STORAGE_KEYS.ADMIN_MODE:
           case STORAGE_KEYS.CURRENT_VIEW:
           case STORAGE_KEYS.CURRENT_DATE:
           case STORAGE_KEYS.SELECTED_EMPLOYEE:
-            await FirebaseService.saveSettings(key, data);
-            firebaseSuccess = true;
+            firebaseSuccess = await FirebaseService.saveSettings(key, data);
             break;
         }
         
-        currentStep++;
-        throttledProgressUpdate('Firebase完了', 100);
+        if (progressCallback) progressCallback('Firebase完了', 100);
       } catch (error) {
         logError(`Firebaseへの保存に失敗しました: ${key}`, error);
       }
@@ -226,7 +194,11 @@ export const StorageService = {
     
     // すべてのストレージ操作が失敗した場合のみfalseを返す
     return localStorageSuccess || indexedDBSuccess || firebaseSuccess;
-  },
+  } catch (error) {
+    logError(`データ保存エラー: ${key}`, error);
+    return false;
+  }
+},
   
   // ローカルストレージからデータを取得（最適化版）
   getData<T>(key: string, defaultValue: T): T {
