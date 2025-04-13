@@ -19,10 +19,28 @@ const Modal: React.FC<ModalProps> = ({
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const scrollPositionRef = useRef<number>(0);
+  const isClosingRef = useRef<boolean>(false);
+  const previousIsOpenRef = useRef<boolean>(false);
 
   // モーダル表示時の処理
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      // モーダルが閉じられた場合
+      if (previousIsOpenRef.current && !isClosingRef.current) {
+        // スクロール位置の復元などの処理を行う
+        document.body.classList.remove('modal-open');
+        document.body.style.top = '';
+        document.body.style.position = '';
+        document.body.style.overflow = '';
+        window.scrollTo(0, scrollPositionRef.current);
+      }
+      previousIsOpenRef.current = false;
+      return;
+    }
+
+    // モーダルが開かれた場合
+    previousIsOpenRef.current = true;
+    isClosingRef.current = false;
 
     // スクロール位置を保存
     scrollPositionRef.current = window.pageYOffset || document.documentElement.scrollTop;
@@ -30,10 +48,17 @@ const Modal: React.FC<ModalProps> = ({
     // スクロール防止
     document.body.classList.add('modal-open');
     document.body.style.top = `-${scrollPositionRef.current}px`;
+    document.body.style.position = 'fixed';
+    document.body.style.overflow = 'hidden';
+    document.body.style.width = '100%';
     
     // キーボードイベント（ESCキー）
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        isClosingRef.current = true;
+        onClose();
+      }
     };
     
     // モーダル外クリック
@@ -41,6 +66,7 @@ const Modal: React.FC<ModalProps> = ({
       if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
         e.preventDefault();
         e.stopPropagation();
+        isClosingRef.current = true;
         onClose();
       }
     };
@@ -53,23 +79,22 @@ const Modal: React.FC<ModalProps> = ({
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('mousedown', handleOutsideClick);
-      
-      // モーダルが閉じられたときだけ実行
-      if (isOpen) {
-        document.body.classList.remove('modal-open');
-        document.body.style.top = '';
-        document.body.style.position = '';
-        document.body.style.overflow = '';
-        window.scrollTo(0, scrollPositionRef.current);
-      }
     };
   }, [isOpen, onClose]);
+
+  // モーダルが閉じられる時に実行するクリーンアップ
+  const handleClose = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isClosingRef.current = true;
+    onClose();
+  };
 
   if (!isOpen) return null;
 
   return (
     <div 
-      className="modal-overlay touch-fix"
+      className="modal-overlay"
       onClick={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
       onTouchMove={(e) => e.stopPropagation()}
@@ -83,11 +108,7 @@ const Modal: React.FC<ModalProps> = ({
           <h2 className="text-xl font-bold">{title}</h2>
           {showCloseButton && (
             <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onClose();
-              }}
+              onClick={handleClose}
               className="p-2 hover:bg-gray-100 rounded-full touch-fix"
               aria-label="Close modal"
               style={{ minHeight: '44px', minWidth: '44px' }}

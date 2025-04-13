@@ -19,6 +19,13 @@
   --z-table-cell: 100;
 }
 
+/* スクロールの基本挙動 */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+}
+
 /* ポインターイベント管理 */
 .pointer-events-auto {
   pointer-events: auto !important;
@@ -33,6 +40,25 @@
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
+}
+
+/* タップ領域の最適化 */
+button, a, [role="button"], .touch-fix {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ボタンの最小タップ領域を確保 */
+button, 
+select, 
+input[type="checkbox"], 
+input[type="radio"],
+.calendar-cell button,
+.touch-fix {
+  min-height: 44px !important;
+  min-width: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ========== カレンダー関連 ========== */
@@ -101,16 +127,18 @@
   overflow: hidden;
   background: white;
   overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .attendance-table-container {
   height: 100%;
   overflow: auto;
-  -webkit-overflow-scrolling: touch;
   width: 100%;
   touch-action: pan-x pan-y;
   scroll-behavior: auto;
   will-change: transform;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .attendance-table {
@@ -118,6 +146,21 @@
   border-collapse: separate;
   border-spacing: 0;
   transform-origin: 0 0;
+}
+
+/* スクロールバーのスタイル調整 */
+.attendance-table-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.attendance-table-container::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+.attendance-table-container::-webkit-scrollbar-track {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 /* テーブルの固定ヘッダーとスクロール */
@@ -154,7 +197,7 @@
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.5);
-  z-index: var(--z-overlay) !important;
+  z-index: 3000 !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -178,8 +221,18 @@
   padding-bottom: 20px;
   touch-action: pan-y;
   position: relative;
-  z-index: var(--z-modal);
+  z-index: 4000;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+/* モーダル表示時のbody固定を修正 */
+body.modal-open {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* モーダル内のフォーム要素 */
@@ -218,11 +271,16 @@ select, input, textarea, button {
   border-radius: 4px;
 }
 
-/* セレクトボックス特有の修正 */
+/* 選択フォーム要素の表示問題修正 */
 select {
   -webkit-appearance: menulist !important;
   appearance: menulist !important;
-  background-color: white;
+  background-color: white !important;
+  color: black !important;
+  position: relative !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  display: block !important;
   padding-right: 20px;
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
   background-position: right 0.5rem center;
@@ -395,11 +453,54 @@ select {
   animation: spin 1s ease-in-out infinite;
 }
 
+/* ========== タップ領域拡大 ========== */
+.tap-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* ========== モバイル対応セレクトボックス ========== */
+.mobile-select {
+  font-size: 16px;
+  -webkit-appearance: menulist !important;
+  appearance: menulist !important;
+  background-color: white;
+  color: black;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  padding: 10px;
+  width: 100%;
+  min-height: 44px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
+  text-overflow: ellipsis;
+  touch-action: manipulation;
+}
+
+.mobile-input,
+.mobile-textarea {
+  font-size: 16px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
 /* ========== メディアクエリ（レスポンシブ対応） ========== */
 @media (max-width: 768px) {
   /* 基本設定 */
   body {
     touch-action: auto;
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
+    overscroll-behavior-y: none;
   }
   
   * {
@@ -409,6 +510,8 @@ select {
   /* カレンダー */
   .calendar-grid {
     gap: 2px;
+    touch-action: pan-x pan-y;
+    -webkit-overflow-scrolling: touch;
   }
 
   .calendar-header {
@@ -418,7 +521,10 @@ select {
 
   .calendar-cell {
     min-height: 80px;
+    max-height: none;
     padding: 4px;
+    touch-action: manipulation;
+    position: relative;
   }
   
   /* 祝日名の調整 */
@@ -433,19 +539,24 @@ select {
   /* 勤務表 */
   .attendance-table-wrapper {
     height: calc(100vh - 180px);
+    max-height: calc(100vh - 180px);
   }
 
   .attendance-table-container {
     scroll-behavior: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   /* スクロールバー */
+  ::-webkit-scrollbar,
   .attendance-table-container::-webkit-scrollbar {
     -webkit-appearance: none;
     width: 7px;
     height: 7px;
   }
 
+  ::-webkit-scrollbar-thumb,
   .attendance-table-container::-webkit-scrollbar-thumb {
     border-radius: 4px;
     background-color: rgba(0, 0, 0, .3);
@@ -472,6 +583,16 @@ select {
   .modal-textarea {
     min-height: 44px !important;
     min-width: 44px;
+  }
+  
+  /* モーダル内のフォーム要素 */
+  .modal-select,
+  .modal-input,
+  .modal-textarea {
+    padding: 12px !important;
+    margin: 8px 0 !important;
+    font-size: 16px !important;
+    min-height: 48px !important;
   }
   
   /* チェックボックスのタップ領域拡大 */
@@ -508,6 +629,8 @@ select {
     height: auto !important;
     padding: 8px 12px !important;
     text-shadow: none !important;
+    -webkit-appearance: menulist !important;
+    appearance: menulist !important;
   }
   
   /* モーダル内の操作を改善 */
@@ -523,13 +646,6 @@ select {
   
   .sync-button {
     padding: 12px 16px;
-  }
-  
-  /* スクロール問題修正 */
-  body.modal-open {
-    position: fixed;
-    width: 100%;
-    overflow: hidden;
   }
 }
 
@@ -566,100 +682,5 @@ select {
     position: static !important;
     break-inside: avoid;
     border: 1px solid #e5e7eb;
-  }
-}
-
-/* ========== モバイル対応セレクトボックス ========== */
-.mobile-select {
-  font-size: 16px;
-  -webkit-appearance: menulist !important;
-  appearance: menulist !important;
-  background-color: white;
-  color: black;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
-  padding: 10px;
-  width: 100%;
-  min-height: 44px;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
-  background-position: right 0.5rem center;
-  background-repeat: no-repeat;
-  background-size: 1.5em 1.5em;
-  padding-right: 2.5rem;
-  text-overflow: ellipsis;
-  touch-action: manipulation;
-}
-
-.mobile-input,
-.mobile-textarea {
-  font-size: 16px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
-  min-height: 44px;
-  touch-action: manipulation;
-}
-
-/* タップ領域拡大 */
-.tap-target {
-  min-height: 44px;
-  min-width: 44px;
-  display: flex;
-  align-items: center;
-}
-
-/* ========== モバイルタッチ最適化 ========== */
-@media (max-width: 768px) {
-  body {
-    -webkit-overflow-scrolling: touch;
-    overflow-x: hidden;
-    overscroll-behavior-y: none;
-  }
-  
-  .attendance-table-container {
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    scroll-behavior: auto;
-    touch-action: pan-x pan-y;
-  }
-  
-  .calendar-grid {
-    touch-action: pan-x pan-y;
-    -webkit-overflow-scrolling: touch;
-  }
-  
-  /* タッチターゲットを大きくする */
-  button, 
-  select,
-  input,
-  .calendar-cell,
-  .attendance-table td {
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-  }
-  
-  /* セレクトボックスの修正 */
-  select {
-    background-color: white !important;
-    color: black !important;
-    -webkit-appearance: menulist !important;
-    appearance: menulist !important;
-    font-size: 16px !important;
-    padding: 10px !important;
-    min-height: 44px !important;
-  }
-  
-  /* モバイルでのスクロールバー表示改善 */
-  ::-webkit-scrollbar {
-    -webkit-appearance: none;
-    width: 7px;
-    height: 7px;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    border-radius: 4px;
-    background-color: rgba(0, 0, 0, .3);
-    -webkit-box-shadow: 0 0 1px rgba(255, 255, 255, .5);
   }
 }
