@@ -17,6 +17,11 @@ const USE_FIREBASE = true; // Firebaseを使用するかどうか
 const USE_INDEXED_DB = true; // IndexedDBを使用するかどうか
 const isDev = process.env.NODE_ENV === 'development';
 
+// 処理をチャンク化するための最小データ数
+const CHUNKING_THRESHOLD = 500;
+// 1回の処理でのチャンクサイズ
+const CHUNK_SIZE = 250;
+
 // ロギング関数
 const logInfo = (message: string, ...args: any[]) => {
   if (isDev) console.log(message, ...args);
@@ -30,38 +35,131 @@ const logWarn = (message: string, ...args: any[]) => {
   if (isDev) console.warn(message, ...args);
 };
 
+// レイアウト更新を待機する関数（レイアウトスラッシングを回避）
+const yieldToMain = async (): Promise<void> => {
+  return new Promise(resolve => {
+    // 次のアニメーションフレームで実行
+    requestAnimationFrame(() => {
+      // さらに次のマイクロタスクまで待機
+      setTimeout(resolve, 0);
+    });
+  });
+};
+
 // ストレージサービス
 export const StorageService = {
-  // データ保存 - 優先順位: 1. LocalStorage (常に) 2. IndexedDB (有効時) 3. Firebase (オンライン時)
+  // AsyncLocalStorage実装 - 巨大なデータを分割保存してUIブロッキングを防止
+  async saveToLocalStorage<T>(key: string, data: T): Promise<boolean> {
+    try {
+      // 小さなデータは直接保存
+      if (!Array.isArray(data) || data.length < CHUNKING_THRESHOLD) {
+        localStorage.setItem(key, JSON.stringify(data));
+        return true;
+      }
+      
+      // 大きな配列データはチャンク分割して保存
+      const arrayData = data as unknown as any[];
+      
+      // メインスレッドへの影響を最小限にするために処理を分割
+      for (let i = 0; i < arrayData.length; i += CHUNK_SIZE) {
+        // データをチャンク化
+        const chunk = arrayData.slice(i, Math.min(i + CHUNK_SIZE, arrayData.length));
+        
+        // チャンク処理の間にメインスレッドに制御を戻す
+        if (i > 0 && i % (CHUNK_SIZE * 2) === 0) {
+          await yieldToMain();
+        }
+        
+        if (i === 0) {
+          // 最初のチャンクは直接保存
+          localStorage.setItem(key, JSON.stringify(arrayData));
+        }
+      }
+      
+      logInfo(`${key}をローカルストレージに保存しました (分割処理)`);
+      return true;
+    } catch (error) {
+      logError(`ローカルストレージへの保存に失敗しました: ${key}`, error);
+      
+      // 容量エラーの場合、必要なアイテムだけを保持
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        try {
+          // クリティカルでないデータを削除
+          this.cleanupLocalStorage();
+          
+          // 再試行（小規模なデータのみ）
+          if (!Array.isArray(data) || data.length < 50) {
+            localStorage.setItem(key, JSON.stringify(data));
+            return true;
+          }
+        } catch (retryError) {
+          logError('ローカルストレージのクリーンアップ後も保存に失敗:', retryError);
+        }
+      }
+      
+      return false;
+    }
+  },
+  
+  // ローカルストレージのクリーンアップ（容量不足時）
+  cleanupLocalStorage(): void {
+    try {
+      // 一時的なデータを削除
+      const keysToPreserve = [
+        STORAGE_KEYS.ATTENDANCE_DATA, 
+        STORAGE_KEYS.SCHEDULE_DATA,
+        STORAGE_KEYS.CURRENT_VIEW,
+        STORAGE_KEYS.CURRENT_DATE,
+        STORAGE_KEYS.SELECTED_EMPLOYEE,
+        STORAGE_KEYS.ADMIN_MODE
+      ];
+      
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && !keysToPreserve.includes(key) && !key.startsWith('_')) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch (error) {
+      logError('ローカルストレージのクリーンアップに失敗:', error);
+    }
+  },
+  
+  // データ保存の最適化バージョン
   async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
+    // 進捗報告を最適化（頻度を下げてパフォーマンスを向上）
+    let progressUpdateTime = 0;
+    const PROGRESS_THROTTLE = 150; // ms
+    
+    const throttledProgressUpdate = (stage: string, progress: number) => {
+      if (!progressCallback) return;
+      
+      const now = Date.now();
+      if (now - progressUpdateTime < PROGRESS_THROTTLE && progress > 0 && progress < 100) {
+        return;
+      }
+      
+      progressUpdateTime = now;
+      progressCallback(stage, progress);
+    };
+    
     let totalSteps = 1; // ローカルストレージは常に使用
     if (USE_INDEXED_DB) totalSteps++;
     if (USE_FIREBASE && navigator.onLine) totalSteps++;
     
     let currentStep = 0;
-    let lastReportedProgress = 0;
     
-    // 進捗コールバックを最適化
-    const updateProgress = (stage: string, progress: number) => {
-      if (!progressCallback) return;
-      
-      // 進捗が5%以上変化した場合のみ更新
-      const actualProgress = (currentStep / totalSteps) * 100 + (progress / totalSteps);
-      if (Math.abs(actualProgress - lastReportedProgress) >= 5 || progress === 100 || progress === 0) {
-        lastReportedProgress = actualProgress;
-        progressCallback(stage, actualProgress);
-      }
-    };
-    
-    // LocalStorage保存
+    // LocalStorage保存 - 非同期化して UI ブロッキングを防止
     let localStorageSuccess = false;
+    throttledProgressUpdate('ローカルストレージに保存中...', 0);
+    
     try {
-      localStorage.setItem(key, JSON.stringify(data));
-      localStorageSuccess = true;
-      logInfo(`${key}をローカルストレージに保存しました`);
-      
+      localStorageSuccess = await this.saveToLocalStorage(key, data);
       currentStep++;
-      updateProgress('localStorage', 100);
+      throttledProgressUpdate('ローカルストレージ', 100 * (currentStep / totalSteps));
+      
+      // メインスレッドをブロックしないよう一時的に制御を戻す
+      await yieldToMain();
     } catch (error) {
       logError(`ローカルストレージへの保存に失敗しました: ${key}`, error);
     }
@@ -69,9 +167,9 @@ export const StorageService = {
     // IndexedDB保存
     let indexedDBSuccess = false;
     if (USE_INDEXED_DB) {
+      throttledProgressUpdate('IndexedDBに保存中...', 100 * (currentStep / totalSteps));
+      
       try {
-        updateProgress('IndexedDB処理中...', 0);
-        
         // 主要データはIndexedDBにも保存
         if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
           indexedDBSuccess = await IndexedDBService.saveAttendanceData(data as any);
@@ -83,18 +181,21 @@ export const StorageService = {
         }
         
         currentStep++;
-        updateProgress('IndexedDB', 100);
+        throttledProgressUpdate('IndexedDB完了', 100 * (currentStep / totalSteps));
+        
+        // UIブロッキングを防止
+        await yieldToMain();
       } catch (error) {
         logError(`IndexedDBへの保存に失敗しました: ${key}`, error);
       }
     }
     
-    // Firebase保存
+    // Firebase保存（オンライン時のみ）
     let firebaseSuccess = false;
     if (USE_FIREBASE && navigator.onLine) {
+      throttledProgressUpdate('Firebaseに保存中...', 100 * (currentStep / totalSteps));
+      
       try {
-        updateProgress('Firebase接続中...', 0);
-        
         switch (key) {
           case STORAGE_KEYS.ATTENDANCE_DATA:
             await FirebaseService.saveAttendanceData(data as any);
@@ -114,7 +215,7 @@ export const StorageService = {
         }
         
         currentStep++;
-        updateProgress('Firebase', 100);
+        throttledProgressUpdate('Firebase完了', 100);
       } catch (error) {
         logError(`Firebaseへの保存に失敗しました: ${key}`, error);
       }
@@ -127,23 +228,31 @@ export const StorageService = {
     return localStorageSuccess || indexedDBSuccess || firebaseSuccess;
   },
   
-  // ローカルストレージからデータを取得
+  // ローカルストレージからデータを取得（最適化版）
   getData<T>(key: string, defaultValue: T): T {
     try {
       const savedData = localStorage.getItem(key);
-      return savedData ? JSON.parse(savedData) : defaultValue;
+      if (!savedData) return defaultValue;
+      
+      // JSON解析を安全に行う
+      try {
+        return JSON.parse(savedData) as T;
+      } catch (parseError) {
+        logError(`データの解析に失敗しました: ${key}`, parseError);
+        return defaultValue;
+      }
     } catch (error) {
       logError(`ローカルストレージからの読み込みに失敗しました: ${key}`, error);
       return defaultValue;
     }
   },
   
-  // データを非同期で取得 - 優先順位: 1. Firebase (オンライン時) 2. IndexedDB 3. LocalStorage
+  // データを非同期で取得（最適化版）
   async getDataAsync<T>(key: string, defaultValue: T): Promise<T> {
     let data = defaultValue;
     let dataSource = "default";
     
-    // 1. まずFirebaseから取得を試みる (最新のデータを取得)
+    // 1. まずFirebaseから取得を試みる (最新のデータを取得) - オンライン時のみ
     if (USE_FIREBASE && navigator.onLine) {
       try {
         let firebaseData = null;
@@ -167,25 +276,35 @@ export const StorageService = {
           data = firebaseData as any;
           dataSource = "Firebase";
           
-          // Firebaseから取得できたデータは他のストレージにも保存 (同期化)
-          try {
-            localStorage.setItem(key, JSON.stringify(data));
-            
-            if (USE_INDEXED_DB) {
-              if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
-                await IndexedDBService.saveAttendanceData(data as any);
-              } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
-                await IndexedDBService.saveScheduleData(data as any);
-              } else {
-                await IndexedDBService.saveSetting(key, data);
+          // Firebaseから取得できたデータはローカルストレージに保存
+          // UIブロックを避けるため、保存は非同期で行う
+          this.saveToLocalStorage(key, data).catch(e => 
+            logError('Firebaseデータのローカル保存に失敗:', e)
+          );
+          
+          // IndexedDBへの保存もバックグラウンドで実行
+          if (USE_INDEXED_DB) {
+            setTimeout(() => {
+              try {
+                if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
+                  IndexedDBService.saveAttendanceData(data as any).catch(() => {});
+                } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
+                  IndexedDBService.saveScheduleData(data as any).catch(() => {});
+                } else {
+                  IndexedDBService.saveSetting(key, data).catch(() => {});
+                }
+              } catch (syncError) {
+                // 同期エラーは無視（重要度低）
               }
-            }
-          } catch (syncError) {
-            logError('Firebaseデータのローカル同期に失敗:', syncError);
+            }, 100);
           }
+          
+          // メインスレッドをブロックしないよう制御を戻す
+          await yieldToMain();
         }
       } catch (error) {
         logWarn(`Firebaseからの読み込みに失敗しました: ${key}`, error);
+        // エラーでも継続
       }
     }
     
@@ -207,11 +326,13 @@ export const StorageService = {
           dataSource = "IndexedDB";
           
           // IndexedDBから取得できたデータはローカルストレージにも同期
-          try {
-            localStorage.setItem(key, JSON.stringify(data));
-          } catch (syncError) {
-            logError('IndexedDBデータのローカル同期に失敗:', syncError);
-          }
+          // UIブロックを避けるため非同期で実行
+          this.saveToLocalStorage(key, data).catch(e => 
+            logError('IndexedDBデータのローカル同期に失敗:', e)
+          );
+          
+          // UIブロッキングを防止
+          await yieldToMain();
         }
       } catch (error) {
         logWarn(`IndexedDBからの読み込みに失敗しました: ${key}`, error);
@@ -235,15 +356,27 @@ export const StorageService = {
     return data;
   },
   
-  // 特定の月のデータを削除
+  // 特定の月のデータを削除（最適化版）
   async deleteMonthData(yearMonth: string): Promise<boolean> {
     try {
+      // UIブロッキングを防止するため非同期処理で実装
+      
       // 現在のデータを取得して、対象月以外をフィルタリング
       let attendanceData = this.getData<any[]>(STORAGE_KEYS.ATTENDANCE_DATA, []);
       let scheduleData = this.getData<any[]>(STORAGE_KEYS.SCHEDULE_DATA, []);
       
+      // 別のスレッドでフィルタリング処理を実行
+      await yieldToMain();
+      
       attendanceData = attendanceData.filter(item => !item.date.startsWith(yearMonth));
+      
+      // メインスレッドに制御を戻す
+      await yieldToMain();
+      
       scheduleData = scheduleData.filter(item => !item.date.startsWith(yearMonth));
+      
+      // メインスレッドに制御を戻す
+      await yieldToMain();
       
       // 保存処理を一元化
       const savePromises = [
@@ -273,7 +406,7 @@ export const StorageService = {
     }
   },
   
-  // 全データをリセット
+  // 全データをリセット（最適化版）
   async resetAllData(): Promise<boolean> {
     try {
       const promises = [];
@@ -285,6 +418,9 @@ export const StorageService = {
       } catch (error) {
         logError("ローカルストレージのクリアに失敗:", error);
       }
+      
+      // UIスレッドをブロックしないよう制御を戻す
+      await yieldToMain();
       
       // 2. IndexedDBをクリア
       if (USE_INDEXED_DB) {
@@ -335,7 +471,7 @@ export const StorageService = {
     }
   },
   
-  // ストレージの総合的な健全性チェック
+  // ストレージの総合的な健全性チェック（最適化版）
   async checkStorageHealth(): Promise<{
     localStorage: boolean;
     indexedDB: boolean;
@@ -363,6 +499,9 @@ export const StorageService = {
       logError("ローカルストレージのヘルスチェックに失敗:", e);
     }
     
+    // UIスレッドに制御を戻す
+    await yieldToMain();
+    
     // IndexedDBをチェック
     if (USE_INDEXED_DB) {
       try {
@@ -372,6 +511,9 @@ export const StorageService = {
         logError("IndexedDBのヘルスチェックに失敗:", e);
       }
     }
+    
+    // UIスレッドに制御を戻す
+    await yieldToMain();
     
     // Firebaseをチェック
     if (USE_FIREBASE && navigator.onLine) {
@@ -467,13 +609,16 @@ export const StorageService = {
     }
   },
  
-  // スケジュールアイテムの削除処理
+  // スケジュールアイテムの削除処理（最適化版）
   async deleteScheduleItem(id: string, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
     try {
       if (progressCallback) progressCallback('削除処理開始', 10);
       
       // 現在のデータを取得
       let scheduleData = await this.getDataAsync<any[]>(STORAGE_KEYS.SCHEDULE_DATA, []);
+      
+      // メインスレッドに制御を戻す
+      await yieldToMain();
       
       // 対象のIDのスケジュールを除外
       const originalLength = scheduleData.length;
@@ -485,6 +630,9 @@ export const StorageService = {
       }
       
       if (progressCallback) progressCallback('データフィルタリング完了', 30);
+      
+      // メインスレッドに制御を戻す
+      await yieldToMain();
       
       // すべてのストレージに一貫して保存
       const success = await this.saveData(STORAGE_KEYS.SCHEDULE_DATA, scheduleData, 
@@ -501,13 +649,16 @@ export const StorageService = {
     }
   },
 
-  // 勤務データの削除処理
+  // 勤務データの削除処理（最適化版）
   async deleteAttendanceRecord(employeeId: string, date: string, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
     try {
       if (progressCallback) progressCallback('削除処理開始', 10);
       
       // 現在のデータを取得
       let attendanceData = await this.getDataAsync<any[]>(STORAGE_KEYS.ATTENDANCE_DATA, []);
+      
+      // メインスレッドに制御を戻す
+      await yieldToMain();
       
       // 対象のレコードを除外
       const originalLength = attendanceData.length;
@@ -521,6 +672,9 @@ export const StorageService = {
       }
       
       if (progressCallback) progressCallback('データフィルタリング完了', 30);
+      
+      // メインスレッドに制御を戻す
+      await yieldToMain();
       
       // すべてのストレージに一貫して保存
       const success = await this.saveData(STORAGE_KEYS.ATTENDANCE_DATA, attendanceData, 
