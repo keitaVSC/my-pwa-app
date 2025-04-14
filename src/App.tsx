@@ -3,8 +3,8 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { format } from "date-fns";
 import JapaneseHolidays from "japanese-holidays";
 import * as XLSX from "xlsx";
-import { WorkTypeModal } from "./components/WorkTypeModal";
-import { ScheduleModal } from "./components/ScheduleModal";
+import { WorkTypeModal } from "./components/WorkTypeModal.tsx";
+import { ScheduleModal } from "./components/ScheduleModal.tsx";
 import { StorageService, STORAGE_KEYS } from "./services/storage";
 import { AttendanceRecord, ScheduleItem } from "./types";
 import "./index.css";
@@ -283,50 +283,51 @@ const App: React.FC = () => {
     }
   }, [selectedCell, attendanceData, employees, showToast, isOffline]);
 
-  // 予定の保存処理
-  const handleScheduleSave = useCallback(async (scheduleData: { 
-    title: string; 
-    employeeIds: string[]; 
-    details?: string; 
-    color?: string;
-  }) => {
-    if (!selectedSchedule) return;
+// 予定の保存処理
+const handleScheduleSave = useCallback(async (scheduleFormData: { 
+  title: string; 
+  employeeIds: string[]; 
+  details?: string; 
+  color?: string;
+}) => {
+  if (!selectedSchedule) return;
+  
+  try {
+    setIsSyncing(true);
+    setSyncProgress(10);
     
-    try {
-      setIsSyncing(true);
-      setSyncProgress(10);
-      
-      const dateStr = format(selectedSchedule.date, "yyyy-MM-dd");
-      const isUpdate = !!selectedSchedule.schedule;
-      
-      let newSchedules = [...scheduleData];
-      
-      // 更新の場合
-      if (isUpdate && selectedSchedule.schedule) {
-        newSchedules = newSchedules.map(item => 
-          item.id === selectedSchedule.schedule?.id 
-            ? { 
-                ...item, 
-                title: scheduleData.title, 
-                employeeIds: scheduleData.employeeIds,
-                employeeId: scheduleData.employeeIds[0] || "", // 後方互換性のため
-                details: scheduleData.details,
-                color: scheduleData.color
-              }
-            : item
-        );
-      } else {
-        // 新規作成の場合
-        newSchedules.push({
-          id: Date.now().toString(),
-          date: dateStr,
-          title: scheduleData.title,
-          employeeIds: scheduleData.employeeIds,
-          employeeId: scheduleData.employeeIds[0] || "", // 後方互換性のため
-          details: scheduleData.details,
-          color: scheduleData.color
-        });
-      }
+    const dateStr = format(selectedSchedule.date, "yyyy-MM-dd");
+    const isUpdate = !!selectedSchedule.schedule;
+    
+    // 修正: 既存のスケジュールデータのコピーを作成
+    let newSchedules = [...scheduleData];
+    
+    // 更新の場合
+    if (isUpdate && selectedSchedule.schedule) {
+      newSchedules = newSchedules.map(item => 
+        item.id === selectedSchedule.schedule?.id 
+          ? { 
+              ...item, 
+              title: scheduleFormData.title, 
+              employeeIds: scheduleFormData.employeeIds,
+              employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
+              details: scheduleFormData.details,
+              color: scheduleFormData.color
+            }
+          : item
+      );
+    } else {
+      // 新規作成の場合
+      newSchedules.push({
+        id: Date.now().toString(),
+        date: dateStr,
+        title: scheduleFormData.title,
+        employeeIds: scheduleFormData.employeeIds,
+        employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
+        details: scheduleFormData.details,
+        color: scheduleFormData.color
+      });
+    }
       
       setSyncProgress(40);
       

@@ -1,24 +1,14 @@
 // src/components/WorkTypeModal.tsx
-import React from "react";
-import { format } from "date-fns";
-
-interface WorkType {
-  id: string;
-  label: string;
-}
-
-interface Employee {
-  id: number;
-  name: string;
-}
+import React, { useState } from 'react';
+import { format } from 'date-fns';
 
 interface WorkTypeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  employee: Employee | null | undefined;
+  employee: { id: number; name: string } | undefined;
   date: Date;
   currentWorkType: string;
-  workTypes: WorkType[];
+  workTypes: { id: string; label: string }[];
   onSelect: (workType: string) => void;
 }
 
@@ -31,65 +21,70 @@ export const WorkTypeModal: React.FC<WorkTypeModalProps> = ({
   workTypes,
   onSelect
 }) => {
-  if (!isOpen || !employee) return null;
-  
+  const [selectedWorkType, setSelectedWorkType] = useState(currentWorkType);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = () => {
+    onSelect(selectedWorkType);
+    onClose();
+  };
+
+  const handleDelete = () => {
+    onSelect('');
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold">勤務区分の選択</h3>
-          <button 
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
-            aria-label="閉じる"
-          >
-            ✕
-          </button>
-        </div>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold mb-4">勤務区分の選択</h2>
         
         <div className="mb-4">
-          <p className="text-sm sm:text-base">
-            <span className="font-medium">{employee.name}</span> - 
-            <span className="ml-1">{format(date, "yyyy年M月d日")}</span>
+          <p className="font-medium">
+            {employee?.name || "従業員"} - {format(date, "yyyy年MM月dd日")}
           </p>
         </div>
         
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4">
-          {workTypes.map(type => (
-            <button
-              key={type.id}
-              className={`
-                p-3 border rounded text-sm sm:text-base
-                ${type.id === currentWorkType 
-                  ? 'bg-blue-100 border-blue-500' 
-                  : 'hover:bg-gray-100'}
-                min-h-[44px]
-              `}
-              onClick={() => {
-                onSelect(type.id);
-                onClose();
-              }}
-            >
-              {type.label}
-            </button>
-          ))}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            勤務区分
+          </label>
+          <select
+            value={selectedWorkType}
+            onChange={(e) => setSelectedWorkType(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded"
+            style={{ WebkitAppearance: 'menulist', appearance: 'menulist' }}
+          >
+            <option value="">選択なし</option>
+            {workTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.label}
+              </option>
+            ))}
+          </select>
         </div>
         
-        <div className="flex justify-between pt-4 border-t">
-          <button
-            onClick={() => {
-              onSelect("");  // 空文字で削除
-              onClose();
-            }}
-            className="px-4 py-2 text-red-500 hover:text-red-700 min-h-[44px]"
-          >
-            削除
-          </button>
+        <div className="flex justify-end space-x-2">
+          {currentWorkType && (
+            <button
+              onClick={handleDelete}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            >
+              削除
+            </button>
+          )}
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 min-h-[44px]"
+            className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
           >
             キャンセル
+          </button>
+          <button
+            onClick={handleSubmit}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            保存
           </button>
         </div>
       </div>

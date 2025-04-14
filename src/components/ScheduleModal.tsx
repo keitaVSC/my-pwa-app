@@ -1,36 +1,22 @@
 // src/components/ScheduleModal.tsx
-import React, { useState, useEffect } from "react";
-import { format } from "date-fns";
-import { ScheduleItem } from "../types";
-
-interface Employee {
-  id: number;
-  name: string;
-}
+import React, { useState, useEffect } from 'react';
+import { format } from 'date-fns';
+import { ScheduleItem } from '../types';
 
 interface ScheduleModalProps {
   isOpen: boolean;
   onClose: () => void;
   date: Date;
   schedule?: ScheduleItem;
-  employees: Employee[];
+  employees: { id: number; name: string }[];
   onSave: (data: { 
     title: string; 
     employeeIds: string[]; 
     details?: string; 
-    color?: string;
+    color?: string 
   }) => void;
   onDelete?: (id: string) => void;
 }
-
-// カラーパレット
-const colorOptions = [
-  { name: "青", value: "#4A90E2" },
-  { name: "赤", value: "#E24A4A" },
-  { name: "緑", value: "#4AE27A" },
-  { name: "オレンジ", value: "#E2A14A" },
-  { name: "ピンク", value: "#E24A9E" }
-];
 
 export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   isOpen,
@@ -41,47 +27,48 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   onSave,
   onDelete
 }) => {
-  const [title, setTitle] = useState("");
-  const [details, setDetails] = useState("");
-  const [color, setColor] = useState(colorOptions[0].value);
+  const [title, setTitle] = useState('');
+  const [details, setDetails] = useState('');
+  const [employeeIds, setEmployeeIds] = useState<string[]>([]);
   const [isAllEmployees, setIsAllEmployees] = useState(true);
-  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
+  const [color, setColor] = useState('#4A90E2');
   
-  // 編集モードの場合、初期値を設定
+  // 編集時に値を設定
   useEffect(() => {
     if (schedule) {
-      setTitle(schedule.title);
-      setDetails(schedule.details || "");
-      setColor(schedule.color || colorOptions[0].value);
+      setTitle(schedule.title || '');
+      setDetails(schedule.details || '');
+      setColor(schedule.color || '#4A90E2');
       
-      const hasEmployees = schedule.employeeIds && schedule.employeeIds.length > 0 || 
-                         (schedule.employeeId && schedule.employeeId !== "");
-      
-      setIsAllEmployees(!hasEmployees);
-      
+      // 既存の従業員設定を取得
       if (schedule.employeeIds && schedule.employeeIds.length > 0) {
-        setSelectedEmployeeIds(schedule.employeeIds);
-      } else if (schedule.employeeId && schedule.employeeId !== "") {
-        setSelectedEmployeeIds([schedule.employeeId]);
+        setEmployeeIds(schedule.employeeIds);
+        setIsAllEmployees(false);
+      } else if (schedule.employeeId && schedule.employeeId !== '') {
+        setEmployeeIds([schedule.employeeId]);
+        setIsAllEmployees(false);
       } else {
-        setSelectedEmployeeIds([]);
+        setEmployeeIds([]);
+        setIsAllEmployees(true);
       }
     } else {
-      // 新規作成時のリセット
-      setTitle("");
-      setDetails("");
-      setColor(colorOptions[0].value);
+      // 新規作成時のデフォルト値
+      setTitle('');
+      setDetails('');
+      setEmployeeIds([]);
       setIsAllEmployees(true);
-      setSelectedEmployeeIds([]);
+      setColor('#4A90E2');
     }
   }, [schedule]);
   
+  if (!isOpen) return null;
+  
   // 従業員選択の切り替え
-  const toggleEmployeeSelection = (employeeId: string) => {
-    if (selectedEmployeeIds.includes(employeeId)) {
-      setSelectedEmployeeIds(prev => prev.filter(id => id !== employeeId));
+  const toggleEmployee = (id: string) => {
+    if (employeeIds.includes(id)) {
+      setEmployeeIds(prev => prev.filter(empId => empId !== id));
     } else {
-      setSelectedEmployeeIds(prev => [...prev, employeeId]);
+      setEmployeeIds(prev => [...prev, id]);
     }
   };
   
@@ -91,7 +78,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     
     onSave({
       title: title.trim(),
-      employeeIds: isAllEmployees ? [] : selectedEmployeeIds,
+      employeeIds: isAllEmployees ? [] : employeeIds,
       details: details.trim() || undefined,
       color
     });
@@ -107,164 +94,135 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     }
   };
   
-  if (!isOpen) return null;
+  // カラープリセット
+  const colorPresets = [
+    '#4A90E2', // 青
+    '#E2574A', // 赤
+    '#50E3C2', // 緑
+    '#F5A623', // オレンジ
+    '#BD10E0'  // 紫
+  ];
   
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold">{schedule ? "予定の編集" : "予定の追加"}</h3>
-          <button 
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
-            aria-label="閉じる"
-          >
-            ✕
-          </button>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold mb-4">
+          {schedule ? '予定の編集' : '予定の追加'}
+        </h2>
+        
+        <div className="mb-4">
+          <p className="font-medium">
+            {format(date, "yyyy年MM月dd日")}
+          </p>
         </div>
         
-        <div className="space-y-4">
-          {/* 日付表示 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">日付</label>
-            <div className="p-2 border rounded bg-gray-50">
-              {format(date, "yyyy年M月d日")}
-            </div>
-          </div>
-          
-          {/* タイトル入力 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              タイトル <span className="text-red-500">*</span>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            タイトル
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded"
+            placeholder="予定のタイトル"
+          />
+        </div>
+        
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            対象者
+          </label>
+          <div className="mb-2">
+            <label className="inline-flex items-center">
+              <input
+                type="checkbox"
+                checked={isAllEmployees}
+                onChange={() => setIsAllEmployees(!isAllEmployees)}
+                className="mr-2"
+              />
+              <span>全員</span>
             </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full p-2 border rounded text-base"
-              placeholder="予定のタイトル"
-              required
-              style={{ minHeight: '44px' }}
-            />
           </div>
           
-          {/* 対象従業員 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">対象者</label>
-            <div className="mb-2">
-              <div className="flex items-center mb-2">
-                <input
-                  type="checkbox"
-                  id="allEmployees"
-                  checked={isAllEmployees}
-                  onChange={(e) => setIsAllEmployees(e.target.checked)}
-                  className="mr-2 h-5 w-5"
-                />
-                <label htmlFor="allEmployees" className="font-medium">
-                  全員共通
-                </label>
-              </div>
-              
-              {!isAllEmployees && (
-                <div className="max-h-40 overflow-y-auto border rounded p-2">
-                  {employees.map(emp => (
-                    <div key={emp.id} className="flex items-center my-1">
-                      <input
-                        type="checkbox"
-                        id={`emp-${emp.id}`}
-                        checked={selectedEmployeeIds.includes(emp.id.toString())}
-                        onChange={() => toggleEmployeeSelection(emp.id.toString())}
-                        className="mr-2 h-5 w-5"
-                      />
-                      <label 
-                        htmlFor={`emp-${emp.id}`} 
-                        className="text-sm min-h-[44px] flex items-center"
-                      >
-                        {emp.name}
-                      </label>
-                    </div>
-                  ))}
+          {!isAllEmployees && (
+            <div className="max-h-40 overflow-y-auto border rounded p-2">
+              {employees.map(emp => (
+                <div key={emp.id} className="flex items-center mb-1">
+                  <input
+                    type="checkbox"
+                    id={`emp-${emp.id}`}
+                    checked={employeeIds.includes(emp.id.toString())}
+                    onChange={() => toggleEmployee(emp.id.toString())}
+                    className="mr-2"
+                  />
+                  <label htmlFor={`emp-${emp.id}`}>{emp.name}</label>
                 </div>
-              )}
-              
-              {!isAllEmployees && selectedEmployeeIds.length === 0 && (
-                <p className="text-sm text-red-500 mt-1">※ 少なくとも1人の従業員を選択してください</p>
-              )}
-            </div>
-          </div>
-          
-          {/* 詳細 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">詳細</label>
-            <textarea
-              value={details}
-              onChange={(e) => setDetails(e.target.value)}
-              className="w-full p-2 border rounded text-base"
-              rows={3}
-              placeholder="予定の詳細（任意）"
-              style={{ minHeight: '44px' }}
-            ></textarea>
-          </div>
-          
-          {/* 色選択 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">表示色</label>
-            <div className="grid grid-cols-5 gap-2 mb-2">
-              {colorOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`w-full h-10 rounded-md ${color === option.value ? 'ring-2 ring-offset-2 ring-blue-500' : ''}`}
-                  style={{ backgroundColor: option.value, minHeight: '44px' }}
-                  onClick={() => setColor(option.value)}
-                  title={option.name}
-                  aria-label={`色: ${option.name}`}
-                />
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="p-1 border rounded"
-                style={{ minHeight: '44px', minWidth: '44px' }}
-              />
-              <span className="text-sm">カスタム色</span>
-            </div>
+          )}
+        </div>
+        
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            詳細 (任意)
+          </label>
+          <textarea
+            value={details}
+            onChange={(e) => setDetails(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded"
+            rows={3}
+            placeholder="予定の詳細"
+          ></textarea>
+        </div>
+        
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            色
+          </label>
+          <div className="flex space-x-2 mb-2">
+            {colorPresets.map(presetColor => (
+              <button
+                key={presetColor}
+                type="button"
+                onClick={() => setColor(presetColor)}
+                className={`w-8 h-8 rounded-full ${
+                  color === presetColor ? 'ring-2 ring-offset-2 ring-blue-500' : ''
+                }`}
+                style={{ backgroundColor: presetColor }}
+              ></button>
+            ))}
           </div>
-          
-          {/* ボタン */}
-          <div className="flex justify-between pt-4 border-t">
-            {schedule && onDelete && (
-              <button
-                onClick={handleDelete}
-                className="px-4 py-2 text-red-500 hover:text-red-700 min-h-[44px]"
-              >
-                削除
-              </button>
-            )}
-            <div className={`flex gap-2 ${schedule && onDelete ? 'ml-auto' : 'w-full justify-end'}`}>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 min-h-[44px]"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={!title.trim() || (!isAllEmployees && selectedEmployeeIds.length === 0)}
-                className={`
-                  px-4 py-2 rounded text-white min-h-[44px]
-                  ${(!title.trim() || (!isAllEmployees && selectedEmployeeIds.length === 0))
-                    ? 'bg-blue-300 cursor-not-allowed'
-                    : 'bg-blue-500 hover:bg-blue-600'}
-                `}
-              >
-                {schedule ? "更新" : "追加"}
-              </button>
-            </div>
-          </div>
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            className="p-1 border rounded"
+          />
+        </div>
+        
+        <div className="flex justify-end space-x-2">
+          {schedule && onDelete && (
+            <button
+              onClick={handleDelete}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            >
+              削除
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            disabled={!title.trim() || (!isAllEmployees && employeeIds.length === 0)}
+          >
+            保存
+          </button>
         </div>
       </div>
     </div>
