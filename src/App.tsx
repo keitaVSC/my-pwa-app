@@ -125,6 +125,9 @@ const warningWorkTypes = [
   "休", "年", "Ap", "特", "a1/P", "a2/P", "A/p1", "A/p2", "a1/p", "a2/p", "a/p1", "a/p2", "A", "P"
 ];
 
+// 警告対象から除外する従業員ID
+const excludedEmployeeIds = ["23", "24", "25", "26", "27"]; // 益田幸枝、井上真理子、斎藤綾子、越野裕太、非常勤（桑原真尋）のID
+
 const App: React.FC = () => {
   // 状態管理
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -212,9 +215,9 @@ const App: React.FC = () => {
     const dateStr = format(date, "yyyy-MM-dd");
     const summary: { [workType: string]: number } = {};
     
-    // 指定日付の勤務区分を集計
+    // 指定日付の勤務区分を集計 (除外従業員を除いて集計)
     attendanceData.forEach(record => {
-      if (record.date === dateStr) {
+      if (record.date === dateStr && !excludedEmployeeIds.includes(record.employeeId)) {
         summary[record.workType] = (summary[record.workType] || 0) + 1;
       }
     });
@@ -347,6 +350,10 @@ const App: React.FC = () => {
       
       // データを保存
       setSyncProgress(50);
+      
+      // ローカルストレージに直接保存を追加
+      localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newData));
+      
       const success = await StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, newData);
       
       setSyncProgress(100);
@@ -383,7 +390,7 @@ const App: React.FC = () => {
       const dateStr = format(selectedSchedule.date, "yyyy-MM-dd");
       const isUpdate = !!selectedSchedule.schedule;
       
-      // 修正: 既存のスケジュールデータのコピーを作成
+      // 既存のスケジュールデータのコピーを作成
       let newSchedules = [...scheduleData];
       
       // 更新の場合
@@ -418,6 +425,9 @@ const App: React.FC = () => {
       // 状態を更新
       setScheduleData(newSchedules);
       
+      // ローカルストレージに直接保存を追加
+      localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
+      
       // データを保存
       setSyncProgress(70);
       const success = await StorageService.saveData(STORAGE_KEYS.SCHEDULE_DATA, newSchedules);
@@ -434,6 +444,14 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.error('予定の保存に失敗しました:', error);
+      
+      // エラーが発生しても最低限ローカルストレージには保存を試みる
+      try {
+        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
+      } catch (storageError) {
+        console.error('ローカルストレージへの保存も失敗:', storageError);
+      }
+      
       setIsSyncing(false);
       showToast("予定の保存に失敗しました", "error");
     }
@@ -452,6 +470,9 @@ const App: React.FC = () => {
       
       // 状態を更新
       setScheduleData(newSchedules);
+      
+      // ローカルストレージに直接保存を追加
+      localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
       
       // データを保存
       setSyncProgress(70);
@@ -630,17 +651,41 @@ const App: React.FC = () => {
       try {
         setIsLoading(true);
         
-        // 並列でデータを読み込む
-        const [attendance, schedule] = await Promise.all([
+        // まずローカルストレージから直接読み込み
+        let localAttendance = [];
+        let localSchedule = [];
+        
+        try {
+          const storedAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE_DATA);
+          const storedSchedule = localStorage.getItem(STORAGE_KEYS.SCHEDULE_DATA);
+          
+          if (storedAttendance) localAttendance = JSON.parse(storedAttendance);
+          if (storedSchedule) localSchedule = JSON.parse(storedSchedule);
+          
+          console.log('ローカルストレージから読み込み:', 
+            `勤怠データ ${localAttendance.length}件, スケジュールデータ ${localSchedule.length}件`);
+        } catch (localError) {
+          console.error('ローカルストレージからの読み込みに失敗:', localError);
+        }
+        
+        // StorageServiceからデータを読み込む
+        const [serviceAttendance, serviceSchedule] = await Promise.all([
           StorageService.getDataAsync<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE_DATA, []),
           StorageService.getDataAsync<ScheduleItem[]>(STORAGE_KEYS.SCHEDULE_DATA, [])
         ]);
         
-        setAttendanceData(attendance);
-        setScheduleData(schedule);
+        console.log('StorageServiceから読み込み:', 
+          `勤怠データ ${serviceAttendance.length}件, スケジュールデータ ${serviceSchedule.length}件`);
+        
+        // 最新のデータを使用（サービスのデータが空の場合はローカルデータを使用）
+        const finalAttendance = serviceAttendance.length > 0 ? serviceAttendance : localAttendance;
+        const finalSchedule = serviceSchedule.length > 0 ? serviceSchedule : localSchedule;
+        
+        setAttendanceData(finalAttendance);
+        setScheduleData(finalSchedule);
         
         // オンライン状態で既存データがある場合、同期フラグを立てる
-        if (navigator.onLine && (attendance.length > 0 || schedule.length > 0)) {
+        if (navigator.onLine && (finalAttendance.length > 0 || finalSchedule.length > 0)) {
           setPendingChanges(true);
         }
       } catch (error) {
@@ -737,7 +782,7 @@ const App: React.FC = () => {
                       return (
                         <th 
                           key={date.getTime()} 
-                          className={`border p-2 ${isWarning ? 'bg-red-100' : bg} ${text} whitespace-nowrap min-w-[70px]`}
+                          className={`border p-2 ${isWarning ? 'bg-yellow-100' : bg} ${text} whitespace-nowrap min-w-[70px]`}
                         >
                           <div className="flex flex-col items-center">
                             <div className="text-base">{date.getDate()}</div>
@@ -779,7 +824,7 @@ const App: React.FC = () => {
                         return (
                           <td 
                             key={`${employee.id}-${date.getTime()}`} 
-                            className={`border p-1 text-center cursor-pointer hover:bg-gray-100 ${isWarning ? 'bg-red-100' : bg} min-h-[60px] relative`}
+                            className={`border p-1 text-center cursor-pointer hover:bg-gray-100 ${isWarning ? 'bg-yellow-100' : bg} min-h-[60px] relative`}
                             onClick={() => handleCellClick(employee.id, date)}
                           >
                             {/* 勤務区分 */}
