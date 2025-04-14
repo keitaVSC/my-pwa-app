@@ -408,48 +408,78 @@ const handleScheduleSave = useCallback(async (scheduleFormData: {
     });
   }, []);
 
-  // データ同期処理
-  const syncData = useCallback(async () => {
-    if (isOffline) {
-      showToast("オフラインのため同期できません", "warning");
+// syncData関数の改善版
+const syncData = useCallback(async () => {
+  if (isOffline) {
+    showToast("オフラインのため同期できません", "warning");
+    return;
+  }
+  
+  try {
+    setIsSyncing(true);
+    setSyncProgress(0);
+    
+    // 先にネットワーク接続を確認
+    const isConnected = await new Promise<boolean>(resolve => {
+      // 簡易的な接続チェック
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        resolve(false);
+      }, 5000);
+      
+      fetch('https://www.google.com/generate_204', {
+        method: 'HEAD',
+        signal: controller.signal
+      })
+      .then(() => {
+        clearTimeout(timeoutId);
+        resolve(true);
+      })
+      .catch(() => {
+        clearTimeout(timeoutId);
+        resolve(false);
+      });
+    });
+    
+    if (!isConnected) {
+      setIsSyncing(false);
+      setIsOffline(true);
+      showToast("ネットワーク接続を確認できません", "warning");
       return;
     }
     
-    try {
-      setIsSyncing(true);
-      setSyncProgress(0);
-      
-      // 勤怠データを同期
-      setSyncProgress(10);
-      const attendanceSuccess = await StorageService.saveData(
-        STORAGE_KEYS.ATTENDANCE_DATA, 
-        attendanceData,
-        (_stage, progress) => setSyncProgress(10 + progress * 0.4)
-      );
-      
-      // 予定データを同期
-      setSyncProgress(50);
-      const scheduleSuccess = await StorageService.saveData(
-        STORAGE_KEYS.SCHEDULE_DATA, 
-        scheduleData,
-        (_stage, progress) => setSyncProgress(50 + progress * 0.5)
-      );
-      
-      setSyncProgress(100);
-      setIsSyncing(false);
-      
-      if (attendanceSuccess && scheduleSuccess) {
-        setPendingChanges(false);
-        showToast("データを同期しました", "success");
-      } else {
-        showToast("同期に一部失敗しました", "warning");
-      }
-    } catch (error) {
-      console.error('同期エラー:', error);
-      setIsSyncing(false);
-      showToast("同期に失敗しました", "error");
+    // 勤怠データを同期
+    setSyncProgress(10);
+    const attendanceSuccess = await StorageService.saveData(
+      STORAGE_KEYS.ATTENDANCE_DATA, 
+      attendanceData,
+      (_stage, progress) => setSyncProgress(10 + progress * 0.4)
+    );
+    
+    // 予定データを同期
+    setSyncProgress(50);
+    const scheduleSuccess = await StorageService.saveData(
+      STORAGE_KEYS.SCHEDULE_DATA, 
+      scheduleData,
+      (_stage, progress) => setSyncProgress(50 + progress * 0.5)
+    );
+    
+    setSyncProgress(100);
+    setIsSyncing(false);
+    
+    if (attendanceSuccess && scheduleSuccess) {
+      setPendingChanges(false);
+      showToast("データを同期しました", "success");
+    } else {
+      showToast("同期に一部失敗しました", "warning");
     }
-  }, [attendanceData, scheduleData, isOffline, showToast]);
+  } catch (error) {
+    console.error('同期エラー:', error);
+    setIsSyncing(false);
+    showToast("同期に失敗しました", "error");
+  }
+}, [attendanceData, scheduleData, isOffline, showToast]);
 
   // エクスポート処理
   const exportData = useCallback(() => {

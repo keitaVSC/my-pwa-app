@@ -45,63 +45,92 @@ const yieldToUI = async (): Promise<void> => {
 };
 
 export const IndexedDBService = {
-  // データベース初期化（最適化バージョン）
+  // データベース初期化（最適化版）
   async initDB(): Promise<IDBDatabase> {
     // 既に初期化済みの場合は既存のプロミスを返す
     if (dbPromise) {
-      return dbPromise;
+      try {
+        // 既存のプロミスが有効かテスト
+        const db = await dbPromise;
+        // 有効性確認のための簡易操作
+        const transaction = db.transaction([STORES.SETTINGS], 'readonly');
+        transaction.objectStore(STORES.SETTINGS);
+        return db;
+      } catch (e) {
+        // 無効なプロミスの場合はリセット
+        dbPromise = null;
+        logInfo('既存のDB接続が無効なためリセットします');
+      }
     }
     
     // 新しいプロミスを作成
     dbPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-      
-      request.onerror = (event) => {
-        logError('IndexedDB初期化エラー:', event);
-        dbPromise = null; // エラー時はプロミスをリセット
-        reject(new Error('IndexedDBを開けませんでした'));
-      };
-      
-      request.onsuccess = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
+      try {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
         
-        // 接続が切れた場合の処理
-        db.onclose = () => {
-          dbPromise = null; // 接続が閉じられたらプロミスをリセット
+        request.onerror = (event) => {
+          logError('IndexedDB初期化エラー:', event);
+          dbPromise = null; // エラー時はプロミスをリセット
+          reject(new Error('IndexedDBを開けませんでした'));
         };
         
-        // エラーハンドリング
-        db.onerror = (event) => {
-          logError('IndexedDBエラー:', event);
+        request.onsuccess = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          
+          // 接続が切れた場合の処理
+          db.onclose = () => {
+            dbPromise = null; // 接続が閉じられたらプロミスをリセット
+            logInfo('IndexedDB接続がクローズされました');
+          };
+          
+          // エラーハンドリング
+          db.onerror = (event) => {
+            logError('IndexedDBエラー:', event);
+          };
+          
+          // 接続テスト
+          try {
+            const testTransaction = db.transaction([STORES.SETTINGS], 'readonly');
+            testTransaction.objectStore(STORES.SETTINGS);
+          } catch (e) {
+            logError('IndexedDB接続テストに失敗:', e);
+            dbPromise = null;
+            reject(new Error('IndexedDB接続テストに失敗しました'));
+            return;
+          }
+          
+          resolve(db);
         };
         
-        resolve(db);
-      };
-      
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        
-        // 出勤データストア
-        if (!db.objectStoreNames.contains(STORES.ATTENDANCE)) {
-          const attendanceStore = db.createObjectStore(STORES.ATTENDANCE, { keyPath: 'id' });
-          attendanceStore.createIndex('employeeId', 'employeeId', { unique: false });
-          attendanceStore.createIndex('date', 'date', { unique: false });
-          logInfo('出勤データストアを作成しました');
-        }
-        
-        // スケジュールデータストア
-        if (!db.objectStoreNames.contains(STORES.SCHEDULE)) {
-          const scheduleStore = db.createObjectStore(STORES.SCHEDULE, { keyPath: 'id' });
-          scheduleStore.createIndex('date', 'date', { unique: false });
-          logInfo('スケジュールストアを作成しました');
-        }
-        
-        // 設定ストア
-        if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
-          db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' });
-          logInfo('設定ストアを作成しました');
-        }
-      };
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          
+          // 出勤データストア
+          if (!db.objectStoreNames.contains(STORES.ATTENDANCE)) {
+            const attendanceStore = db.createObjectStore(STORES.ATTENDANCE, { keyPath: 'id' });
+            attendanceStore.createIndex('employeeId', 'employeeId', { unique: false });
+            attendanceStore.createIndex('date', 'date', { unique: false });
+            logInfo('出勤データストアを作成しました');
+          }
+          
+          // スケジュールデータストア
+          if (!db.objectStoreNames.contains(STORES.SCHEDULE)) {
+            const scheduleStore = db.createObjectStore(STORES.SCHEDULE, { keyPath: 'id' });
+            scheduleStore.createIndex('date', 'date', { unique: false });
+            logInfo('スケジュールストアを作成しました');
+          }
+          
+          // 設定ストア
+          if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
+            db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' });
+            logInfo('設定ストアを作成しました');
+          }
+        };
+      } catch (e) {
+        logError('IndexedDB初期化中に予期せぬエラー:', e);
+        dbPromise = null;
+        reject(new Error('IndexedDB初期化中に予期せぬエラーが発生しました'));
+      }
     });
     
     return dbPromise;
@@ -124,75 +153,75 @@ export const IndexedDBService = {
     }
   },
 
-// 勤怠データ保存（トランザクション安定性の改善版）
-async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
-  if (!data || data.length === 0) return true;
-  
-  try {
-    const db = await this.initDB();
-    const CHUNK_SIZE = 50; // 小さくして安定性向上
-    let success = true;
-    let addedCount = 0;
+  // 勤怠データ保存（トランザクション安定性の改善版）
+  async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
+    if (!data || data.length === 0) return true;
     
-    // 各チャンクごとに独立したトランザクションを使用
-    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-      const chunk = data.slice(i, Math.min(i + CHUNK_SIZE, data.length));
+    try {
+      const db = await this.initDB();
+      const CHUNK_SIZE = 50; // 小さくして安定性向上
+      let success = true;
+      let addedCount = 0;
       
-      // 各チャンクで新しいトランザクションを作成
-      await new Promise<void>((resolve, reject) => {
-        try {
-          const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
-          const store = transaction.objectStore(STORES.ATTENDANCE);
-          
-          transaction.oncomplete = () => {
-            resolve();
-          };
-          
-          transaction.onerror = (e) => {
-            logError('チャンク保存エラー:', e);
+      // 各チャンクごとに独立したトランザクションを使用
+      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+        const chunk = data.slice(i, Math.min(i + CHUNK_SIZE, data.length));
+        
+        // 各チャンクで新しいトランザクションを作成
+        await new Promise<void>((resolve, reject) => {
+          try {
+            const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
+            const store = transaction.objectStore(STORES.ATTENDANCE);
+            
+            transaction.oncomplete = () => {
+              resolve();
+            };
+            
+            transaction.onerror = (e) => {
+              logError('チャンク保存エラー:', e);
+              success = false;
+              resolve(); // エラーでも継続
+            };
+            
+            // 同一トランザクション内ですべての操作を完了
+            chunk.forEach(record => {
+              try {
+                const recordWithId = {
+                  ...record,
+                  id: record.employeeId && record.date 
+                    ? `${record.employeeId}_${record.date}`
+                    : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+                };
+                
+                const putRequest = store.put(recordWithId);
+                putRequest.onsuccess = () => {
+                  addedCount++;
+                };
+                putRequest.onerror = (e) => {
+                  logError('レコード保存エラー:', e);
+                };
+              } catch (e) {
+                logError('putリクエスト作成エラー:', e);
+              }
+            });
+          } catch (txError) {
+            logError('トランザクション作成エラー:', txError);
             success = false;
-            resolve(); // エラーでも継続
-          };
-          
-          // 同一トランザクション内ですべての操作を完了
-          chunk.forEach(record => {
-            try {
-              const recordWithId = {
-                ...record,
-                id: record.employeeId && record.date 
-                  ? `${record.employeeId}_${record.date}`
-                  : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
-              };
-              
-              const putRequest = store.put(recordWithId);
-              putRequest.onsuccess = () => {
-                addedCount++;
-              };
-              putRequest.onerror = (e) => {
-                logError('レコード保存エラー:', e);
-              };
-            } catch (e) {
-              logError('putリクエスト作成エラー:', e);
-            }
-          });
-        } catch (txError) {
-          logError('トランザクション作成エラー:', txError);
-          success = false;
-          resolve();
-        }
-      });
+            resolve();
+          }
+        });
+        
+        // チャンク間でメインスレッドを解放
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
       
-      // チャンク間でメインスレッドを解放
-      await new Promise(resolve => setTimeout(resolve, 50));
+      logInfo(`IndexedDB: ${addedCount}件の勤怠データを保存しました`);
+      return success;
+    } catch (error) {
+      logError('IndexedDB保存処理エラー:', error);
+      return false;
     }
-    
-    logInfo(`IndexedDB: ${addedCount}件の勤怠データを保存しました`);
-    return success;
-  } catch (error) {
-    logError('IndexedDB初期化エラー:', error);
-    return false;
-  }
-},
+  },
   
   // 勤怠データ取得（最適化版）
   async getAttendanceData(): Promise<AttendanceRecord[]> {
@@ -220,6 +249,7 @@ async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
           };
           
           request.onerror = (event) => {
+            logError('勤怠データ取得エラー:', event);
             reject(new Error('勤怠データ取得に失敗しました'));
           };
         } catch (txError) {
@@ -267,6 +297,7 @@ async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
                 clearRequest.onerror = () => resolve(); // エラーでも継続
               });
             } catch (e) {
+              logError('スケジュールデータクリアエラー:', e);
               // エラーでも処理継続
             }
           }
@@ -281,8 +312,12 @@ async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
                     addedCount++;
                     resolve();
                   };
-                  putRequest.onerror = () => resolve(); // エラー時も処理続行
+                  putRequest.onerror = (e) => {
+                    logError('スケジュールアイテム保存エラー:', e);
+                    resolve(); // エラー時も処理続行
+                  };
                 } catch (e) {
+                  logError('スケジュールput作成エラー:', e);
                   resolve(); // エラーでも処理続行
                 }
               });
@@ -321,7 +356,8 @@ async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
             }, 0);
           };
           
-          request.onerror = () => {
+          request.onerror = (e) => {
+            logError('スケジュールデータ取得エラー:', e);
             reject(new Error('スケジュールデータ取得に失敗しました'));
           };
         } catch (txError) {
@@ -345,7 +381,10 @@ async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
       return new Promise(resolve => {
         const putRequest = store.put({ key, value });
         putRequest.onsuccess = () => resolve(true);
-        putRequest.onerror = () => resolve(false);
+        putRequest.onerror = (e) => {
+          logError(`設定保存エラー (${key}):`, e);
+          resolve(false);
+        };
       });
     } catch (error) {
       logError(`IndexedDB設定保存エラー (${key}):`, error);
@@ -371,7 +410,10 @@ async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
           }
         };
         
-        request.onerror = () => resolve(defaultValue);
+        request.onerror = (e) => {
+          logError(`設定取得エラー (${key}):`, e);
+          resolve(defaultValue);
+        };
       });
     } catch (error) {
       logError(`IndexedDB設定取得エラー (${key}):`, error);
@@ -390,11 +432,18 @@ async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
         const request = store.clear();
         
         request.onsuccess = () => {
+          logInfo(`${storeName}ストアを正常にクリアしました`);
           transaction.oncomplete = () => resolve(true);
-          transaction.onerror = () => resolve(false);
+          transaction.onerror = (e) => {
+            logError(`${storeName}クリアトランザクションエラー:`, e);
+            resolve(false);
+          };
         };
         
-        request.onerror = () => resolve(false);
+        request.onerror = (e) => {
+          logError(`${storeName}クリアリクエストエラー:`, e);
+          resolve(false);
+        };
       });
     } catch (error) {
       logError(`IndexedDBストアクリアエラー (${storeName}):`, error);

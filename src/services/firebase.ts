@@ -118,7 +118,8 @@ const logError = (operation: string, error: any): void => {
   console.error(`Firebase ${operation} error:`, error);
 };
 
-// 再試行ロジック
+// firebase.ts の一部を修正
+// 接続リトライロジックの改善
 const withRetry = async <T>(
   operation: () => Promise<T>,
   maxRetries: number = 3,
@@ -128,12 +129,30 @@ const withRetry = async <T>(
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
+      // ネットワーク接続チェック
+      if (!navigator.onLine && attempt > 0) {
+        // オフライン状態では接続を試みず短絡的に失敗
+        throw new Error('Device is offline');
+      }
+      
       return await operation();
     } catch (error) {
       lastError = error;
-      // 指数バックオフで待機
-      const delay = baseDelay * Math.pow(2, attempt);
-      await new Promise(r => setTimeout(r, delay));
+      // ネットワーク関連のエラーかどうかチェック
+      const isNetworkError = error instanceof Error && 
+        (error.message.includes('network') || 
+         error.message.includes('offline') ||
+         error.message.includes('timeout'));
+      
+      // ネットワークエラーの場合のみ再試行
+      if (isNetworkError) {
+        // 指数バックオフで待機
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        // その他のエラーは即時スロー
+        throw error;
+      }
     }
   }
   
