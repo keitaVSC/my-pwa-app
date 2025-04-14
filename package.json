@@ -3,9 +3,10 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build --mode production",
-    "preview": "vite preview"
+    "dev": "tailwindcss -i ./src/index.css -o ./public/styles.css && vite",
+    "build": "tailwindcss -i ./src/index.css -o ./public/styles.css && tsc && vite build --mode production", 
+    "preview": "vite preview",
+    "watch:css": "tailwindcss -i ./src/index.css -o ./public/styles.css --watch"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.17",

@@ -1,13 +1,30 @@
-// vite.config.ts の修正版
+// vite.config.ts の完全修正版
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import path from 'path'
 
 export default defineConfig({
   base: '/',
   build: {
     assetsDir: 'assets',
     sourcemap: true,
+    // CSSの最適化設定
+    cssCodeSplit: false,
+  },
+  css: {
+    // CSS処理の優先度を上げる
+    postcss: {
+      plugins: [
+        require('tailwindcss'),
+        require('autoprefixer'),
+      ],
+    }
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src')
+    }
   },
   plugins: [
     react(),

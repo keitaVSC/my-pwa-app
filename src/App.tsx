@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { format } from "date-fns";
 import JapaneseHolidays from "japanese-holidays";
 import * as XLSX from "xlsx";
+import 'tailwindcss/tailwind.css';  // Tailwind CSSを直接インポート
 import { WorkTypeModal } from "./components/WorkTypeModal.tsx";
 import { ScheduleModal } from "./components/ScheduleModal.tsx";
 import { StorageService, STORAGE_KEYS } from "./services/storage";

@@ -13,8 +13,9 @@
     <meta name="format-detection" content="telephone=no">
     <meta name="description" content="従業員の勤務管理をサポートするPWAアプリケーション">
     
-    <!-- プリロードの最適化 -->
-    <link rel="preload" href="/src/index.css" as="style">
+    <!-- CSSの読み込み順序を最適化 - パスを修正 -->
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/src/index.css">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     
     <!-- iOS用アイコン -->
