@@ -1,166 +1,19 @@
-/* src/index.css */
-/* 基本スタイル */
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+/* postcss syntax */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* ========== 共通コンポーネント ========== */
-/* z-indexの階層管理 - アプリ全体で一貫した階層構造 */
-:root {
-  --z-progress: 5000;
-  --z-modal: 4000;
-  --z-toast: 3500;
-  --z-overlay: 3000;
-  --z-sync: 2500;
-  --z-offline: 2000;
-  --z-admin: 1500;
-  --z-calendar: 1000;
-  --z-table-header: 500;
-  --z-table-cell: 100;
+/* 共通スタイル */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
 }
 
-/* スクロールの基本挙動 */
-html, body {
-  overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: auto;
-}
-
-/* ポインターイベント管理 */
-.pointer-events-auto {
-  pointer-events: auto !important;
-}
-
-.pointer-events-none {
-  pointer-events: none !important;
-}
-
-/* タッチ操作向け改善 */
-.touch-fix {
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-}
-
-/* タップ領域の最適化 */
-button, a, [role="button"], .touch-fix {
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* ボタンの最小タップ領域を確保 */
-button, 
-select, 
-input[type="checkbox"], 
-input[type="radio"],
-.calendar-cell button,
-.touch-fix {
-  min-height: 44px !important;
-  min-width: 44px;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* ========== カレンダー関連 ========== */
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: auto;
-}
-
-.calendar-header {
-  text-align: center;
-  padding: 8px;
-  font-weight: bold;
-  background-color: #f3f4f6;
-  border-radius: 4px;
-}
-
-.calendar-cell {
-  position: relative;
-  min-height: 100px;
-  padding: 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
-  overflow: hidden;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(0,0,0,0.1);
-}
-
-.calendar-cell > * {
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(0,0,0,0.1);
-}
-
-.calendar-cell button {
-  position: relative;
-  z-index: var(--z-calendar);
-  background-color: rgba(255,255,255,0.8);
-  padding: 8px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.calendar-cell-current {
-  background-color: #ffffff;
-}
-
-.calendar-cell-other {
-  background-color: #f9fafb;
-  opacity: 0.6;
-}
-
-/* 警告用の背景色 */
-.bg-warning-red {
-  background-color: rgba(255, 0, 0, 0.1);
-}
-
-/* ========== 勤務表関連 ========== */
-.attendance-table-wrapper {
-  position: relative;
-  height: calc(100vh - 200px);
-  overflow: hidden;
-  background: white;
-  overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.attendance-table-container {
-  height: 100%;
-  overflow: auto;
-  width: 100%;
-  touch-action: pan-x pan-y;
-  scroll-behavior: auto;
-  will-change: transform;
-  overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.attendance-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  transform-origin: 0 0;
-}
-
-/* スクロールバーのスタイル調整 */
-.attendance-table-container::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.attendance-table-container::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.3);
-  border-radius: 4px;
-}
-
-.attendance-table-container::-webkit-scrollbar-track {
-  background-color: rgba(0, 0, 0, 0.05);
+/* スムーススクロール */
+html {
+  scroll-behavior: smooth;
 }
 
 /* テーブルの固定ヘッダーとスクロール */
@@ -168,13 +21,13 @@ input[type="radio"],
   position: sticky;
   top: 0;
   background-color: white;
-  z-index: var(--z-table-header);
+  z-index: 10;
 }
 
 .attendance-table th:first-child {
   position: sticky;
   left: 0;
-  z-index: calc(var(--z-table-header) * 2);
+  z-index: 20;
   background-color: white;
 }
 
@@ -182,505 +35,62 @@ input[type="radio"],
   position: sticky;
   left: 0;
   background-color: white;
-  z-index: var(--z-table-cell);
+  z-index: 10;
 }
 
-/* セルのサイズ設定 */
-.attendance-table th,
+/* タッチ操作の最適化 */
+.touch-action-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* テーブルセルの高さ */
 .attendance-table td {
-  min-width: 60px;
-  padding: 8px 4px;
+  height: 70px;
+  vertical-align: top;
 }
 
-/* ========== モーダル関連 ========== */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  z-index: 3000 !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: none;
-  touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.modal-body {
-  background-color: white;
-  border-radius: 0.5rem;
-  width: 95%;
-  max-width: 500px;
-  margin: 1rem auto;
-  max-height: 85vh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  padding-bottom: 20px;
-  touch-action: pan-y;
-  position: relative;
-  z-index: 4000;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-}
-
-/* モーダル表示時のbody固定を修正 */
-body.modal-open {
-  position: fixed;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* モーダル内のフォーム要素 */
-.modal-select {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  font-size: 16px !important;
-  position: relative !important;
-  -webkit-appearance: menulist !important;
-  appearance: menulist !important;
-  width: 100%;
-  padding: 8px 12px;
-  margin: 8px 0;
-  border: 1px solid #cbd5e0;
-  background-color: white;
-  color: black;
-  z-index: 1;
-}
-
-.modal-input, 
-.modal-textarea {
-  font-size: 16px !important;
-  width: 100%;
-  padding: 8px 12px;
-  margin: 8px 0;
-  border: 1px solid #cbd5e0;
-  background-color: white;
-}
-
-/* ========== フォーム要素共通 ========== */
-select, input, textarea, button {
-  font-size: 16px !important; /* iOS自動ズーム防止 */
-  -webkit-appearance: none;
-  appearance: none;
-  border-radius: 4px;
-}
-
-/* 選択フォーム要素の表示問題修正 */
-select {
-  -webkit-appearance: menulist !important;
-  appearance: menulist !important;
-  background-color: white !important;
-  color: black !important;
-  position: relative !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  display: block !important;
-  padding-right: 20px;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
-  background-position: right 0.5rem center;
-  background-repeat: no-repeat;
-  background-size: 1.5em 1.5em;
-}
-
-/* ========== 通知とアラート ========== */
-/* トースト通知 */
-.toast {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 12px 24px;
-  color: white;
-  border-radius: 4px;
-  z-index: var(--z-toast);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  animation: slideUp 0.3s, fadeOut 0.5s 2.5s;
-  max-width: 90%;
-  text-align: center;
-  will-change: transform, opacity;
-  pointer-events: none;
-}
-
-/* オフライン表示 */
-.offline-indicator {
-  position: fixed;
-  bottom: 20px;
-  left: 20px;
-  background-color: #ff9800;
-  color: white;
-  padding: 8px 16px;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  font-size: 14px;
-  z-index: var(--z-offline);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  pointer-events: auto;
-}
-
-/* 同期ボタン */
-.sync-button-container {
-  position: fixed;
-  bottom: 20px;
-  left: 20px;
-  z-index: var(--z-sync);
-  pointer-events: auto;
-}
-
-.sync-button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background-color: #3b82f6;
-  color: white;
-  padding: 10px 16px;
-  border-radius: 9999px;
-  font-weight: 500;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s;
-  user-select: none;
-}
-
-.sync-button:hover {
-  background-color: #2563eb;
-}
-
-.sync-button:active {
-  transform: translateY(1px);
-}
-
-.sync-button.loading {
-  animation: pulse 1.5s infinite;
-  position: relative;
-}
-
-/* プログレスバー */
-.sync-progress {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: var(--z-progress);
-  background-color: white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  padding: 8px;
-}
-
-.sync-progress-bar {
-  height: 8px;
-  background-color: #f0f0f0;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.sync-progress-fill {
-  height: 100%;
-  background-color: #4299e1;
-  border-radius: 4px;
-  transition: width 0.3s ease;
-}
-
-.sync-progress-label {
-  text-align: center;
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-
-/* ========== アニメーション ========== */
-@keyframes slideUp {
-  from {
-    transform: translate(-50%, 20px);
-    opacity: 0;
-  }
-  to {
-    transform: translate(-50%, 0);
-    opacity: 1;
-  }
-}
-
-@keyframes fadeOut {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes pulse {
-  0% {
-    background-color: #4299e1;
-  }
-  50% {
-    background-color: #63b3ed;
-  }
-  100% {
-    background-color: #4299e1;
-  }
-}
-
-.fade-in {
-  animation: fadeIn 0.2s ease-out;
-  will-change: opacity, transform;
-}
-
-/* ========== ローディングインジケーター ========== */
-.spinner {
-  display: inline-block;
-  width: 50px;
-  height: 50px;
-  border: 4px solid rgba(0, 0, 0, 0.1);
-  border-radius: 50%;
-  border-top-color: #4A90E2;
-  animation: spin 1s ease-in-out infinite;
-}
-
-/* ========== タップ領域拡大 ========== */
-.tap-target {
-  min-height: 44px;
-  min-width: 44px;
-  display: flex;
-  align-items: center;
-}
-
-/* ========== モバイル対応セレクトボックス ========== */
-.mobile-select {
-  font-size: 16px;
-  -webkit-appearance: menulist !important;
-  appearance: menulist !important;
-  background-color: white;
-  color: black;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
-  padding: 10px;
-  width: 100%;
-  min-height: 44px;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
-  background-position: right 0.5rem center;
-  background-repeat: no-repeat;
-  background-size: 1.5em 1.5em;
-  padding-right: 2.5rem;
-  text-overflow: ellipsis;
-  touch-action: manipulation;
-}
-
-.mobile-input,
-.mobile-textarea {
-  font-size: 16px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
-  min-height: 44px;
-  touch-action: manipulation;
-}
-
-/* ========== メディアクエリ（レスポンシブ対応） ========== */
+/* モバイル対応 - フォントサイズの自動調整を防止 */
 @media (max-width: 768px) {
-  /* 基本設定 */
-  body {
-    touch-action: auto;
-    -webkit-overflow-scrolling: touch;
-    overflow-x: hidden;
-    overscroll-behavior-y: none;
+  input, select, textarea, button {
+    font-size: 16px !important; /* iOS自動ズーム防止 */
   }
   
-  * {
-    -webkit-tap-highlight-color: transparent;
-  }
-  
-  /* カレンダー */
-  .calendar-grid {
-    gap: 2px;
-    touch-action: pan-x pan-y;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .calendar-header {
-    padding: 4px;
-    font-size: 14px;
-  }
-
-  .calendar-cell {
-    min-height: 80px;
-    max-height: none;
-    padding: 4px;
-    touch-action: manipulation;
-    position: relative;
-  }
-  
-  /* 祝日名の調整 */
-  .calendar-cell .text-xs.text-red-500.truncate {
-    font-size: 10px;
-    line-height: 1.2;
-    max-width: 100%;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-
-  /* 勤務表 */
-  .attendance-table-wrapper {
-    height: calc(100vh - 180px);
-    max-height: calc(100vh - 180px);
-  }
-
-  .attendance-table-container {
-    scroll-behavior: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-  }
-
-  /* スクロールバー */
-  ::-webkit-scrollbar,
-  .attendance-table-container::-webkit-scrollbar {
+  /* スクロールバーの調整 */
+  ::-webkit-scrollbar {
     -webkit-appearance: none;
     width: 7px;
     height: 7px;
   }
 
-  ::-webkit-scrollbar-thumb,
-  .attendance-table-container::-webkit-scrollbar-thumb {
+  ::-webkit-scrollbar-thumb {
     border-radius: 4px;
     background-color: rgba(0, 0, 0, .3);
     -webkit-box-shadow: 0 0 1px rgba(255, 255, 255, .5);
   }
-
-  /* 選択状態 */
-  .attendance-table td.selected {
-    position: relative;
-    z-index: 1;
-    box-shadow: 0 0 0 2px #3b82f6;
-  }
-  
-  /* タッチターゲットサイズ拡大 */
-  .modal-body button, 
-  .modal-body select,
-  .modal-body input[type="checkbox"],
-  .modal-body input[type="radio"],
-  .calendar-cell button,
-  .attendance-table td,
-  .calendar-cell,
-  .modal-select,
-  .modal-input,
-  .modal-textarea {
-    min-height: 44px !important;
-    min-width: 44px;
-  }
-  
-  /* モーダル内のフォーム要素 */
-  .modal-select,
-  .modal-input,
-  .modal-textarea {
-    padding: 12px !important;
-    margin: 8px 0 !important;
-    font-size: 16px !important;
-    min-height: 48px !important;
-  }
-  
-  /* チェックボックスのタップ領域拡大 */
-  .modal-body input[type="checkbox"] + label,
-  .modal-body input[type="radio"] + label {
-    display: inline-block;
-    padding: 8px;
-    margin: -8px;
-  }
-  
-  /* フォーム要素 */
-  input[type="checkbox"],
-  input[type="radio"] {
-    min-width: 22px;
-    min-height: 22px;
-    margin: 0 8px 0 0;
-  }
-  
-  label {
-    display: flex;
-    align-items: center;
-    min-height: 44px;
-    padding: 8px 0;
-  }
-  
-  /* セレクト表示問題の修正 */
-  select {
-    opacity: 1 !important; 
-    z-index: 1;
-    background-color: white !important;
-    border: 1px solid #e2e8f0 !important;
-    color: black !important;
-    font-size: 16px !important;
-    height: auto !important;
-    padding: 8px 12px !important;
-    text-shadow: none !important;
-    -webkit-appearance: menulist !important;
-    appearance: menulist !important;
-  }
-  
-  /* モーダル内の操作を改善 */
-  .modal-body {
-    padding-bottom: 80px;
-  }
-  
-  /* 同期ボタン */
-  .sync-button-container {
-    bottom: 24px;
-    left: 24px;
-  }
-  
-  .sync-button {
-    padding: 12px 16px;
-  }
 }
 
-/* ========== 印刷用スタイル ========== */
-@media print {
-  .no-print {
-    display: none !important;
-  }
+/* アニメーション */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
 
-  body {
-    background-color: white;
-  }
+@keyframes slideIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
 
-  .container {
-    max-width: 100%;
-    padding: 0;
-  }
+/* トースト通知 */
+.toast-enter {
+  animation: slideIn 0.3s ease-out;
+}
 
-  .calendar-cell {
-    border: 1px solid #e5e7eb;
-  }
+.toast-exit {
+  animation: fadeOut 0.3s ease-in;
+}
 
-  .attendance-table-wrapper {
-    height: auto;
-    overflow: visible;
-  }
-
-  .attendance-table-container {
-    overflow: visible;
-  }
-
-  .attendance-table th,
-  .attendance-table td {
-    position: static !important;
-    break-inside: avoid;
-    border: 1px solid #e5e7eb;
-  }
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }

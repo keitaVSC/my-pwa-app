@@ -29,3 +29,4 @@ export interface ScheduleItem {
   details?: string;
   color?: string;
 }
+
