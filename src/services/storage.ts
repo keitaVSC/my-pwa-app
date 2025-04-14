@@ -41,13 +41,49 @@ const yieldToMain = async (): Promise<void> => {
   });
 };
 
+// undefinedをnullに変換するヘルパー関数
+const sanitizeData = <T>(data: T): T => {
+  if (Array.isArray(data)) {
+    return data.map(item => 
+      typeof item === 'object' && item !== null 
+        ? sanitizeObjectData(item) 
+        : item
+    ) as unknown as T;
+  } else if (typeof data === 'object' && data !== null) {
+    return sanitizeObjectData(data);
+  }
+  return data;
+};
+
+const sanitizeObjectData = <T extends object>(obj: T): T => {
+  const result = { ...obj };
+  Object.keys(result).forEach(key => {
+    const value = result[key as keyof T];
+    if (value === undefined) {
+      (result as any)[key] = null;
+    } else if (typeof value === 'object' && value !== null) {
+      if (Array.isArray(value)) {
+        (result as any)[key] = value.map(item => 
+          typeof item === 'object' && item !== null 
+            ? sanitizeObjectData(item) 
+            : item === undefined ? null : item
+        );
+      } else {
+        (result as any)[key] = sanitizeObjectData(value);
+      }
+    }
+  });
+  return result;
+};
+
 // ストレージサービス
 export const StorageService = {
   // LocalStorage実装の修正版 - チャンク処理を簡素化
   async saveToLocalStorage<T>(key: string, data: T): Promise<boolean> {
     try {
-      // データをJSON文字列に変換して保存
-      localStorage.setItem(key, JSON.stringify(data));
+      // データをJSON文字列に変換して保存（undefinedをnullに変換）
+      const safeData = sanitizeData(data);
+      localStorage.setItem(key, JSON.stringify(safeData));
       logInfo(`${key}をローカルストレージに保存しました`);
       return true;
     } catch (error) {
@@ -60,7 +96,8 @@ export const StorageService = {
           this.cleanupLocalStorage();
           
           // 再試行
-          localStorage.setItem(key, JSON.stringify(data));
+          const safeData = sanitizeData(data);
+          localStorage.setItem(key, JSON.stringify(safeData));
           return true;
         } catch (retryError) {
           logError('ローカルストレージのクリーンアップ後も保存に失敗:', retryError);
@@ -98,9 +135,12 @@ export const StorageService = {
   // データ保存の安定性改善版
   async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
     try {
+      // undefinedをnullに変換して安全なデータにする
+      const safeData = sanitizeData(data);
+      
       // ローカルストレージへの保存（最優先で実行）
       if (progressCallback) progressCallback('ローカルストレージに保存中...', 10);
-      const localStorageSuccess = await this.saveToLocalStorage(key, data);
+      const localStorageSuccess = await this.saveToLocalStorage(key, safeData);
       
       if (progressCallback) progressCallback('ローカルストレージ完了', 30);
       
@@ -115,12 +155,12 @@ export const StorageService = {
         try {
           // 主要データはIndexedDBにも保存
           if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
-            indexedDBSuccess = await IndexedDBService.saveAttendanceData(data as any);
+            indexedDBSuccess = await IndexedDBService.saveAttendanceData(safeData as any);
           } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
-            indexedDBSuccess = await IndexedDBService.saveScheduleData(data as any);
+            indexedDBSuccess = await IndexedDBService.saveScheduleData(safeData as any);
           } else {
             // 設定データはシンプルなkey-valueとして保存
-            indexedDBSuccess = await IndexedDBService.saveSetting(key, data);
+            indexedDBSuccess = await IndexedDBService.saveSetting(key, safeData);
           }
           
           if (progressCallback) progressCallback('IndexedDB完了', 60);
@@ -140,16 +180,16 @@ export const StorageService = {
         try {
           switch (key) {
             case STORAGE_KEYS.ATTENDANCE_DATA:
-              firebaseSuccess = await FirebaseService.saveAttendanceData(data as any);
+              firebaseSuccess = await FirebaseService.saveAttendanceData(safeData as any);
               break;
             case STORAGE_KEYS.SCHEDULE_DATA:
-              firebaseSuccess = await FirebaseService.saveScheduleData(data as any);
+              firebaseSuccess = await FirebaseService.saveScheduleData(safeData as any);
               break;
             case STORAGE_KEYS.ADMIN_MODE:
             case STORAGE_KEYS.CURRENT_VIEW:
             case STORAGE_KEYS.CURRENT_DATE:
             case STORAGE_KEYS.SELECTED_EMPLOYEE:
-              firebaseSuccess = await FirebaseService.saveSettings(key, data);
+              firebaseSuccess = await FirebaseService.saveSettings(key, safeData);
               break;
           }
           
@@ -170,7 +210,6 @@ export const StorageService = {
     }
   },
   
-  // 他のメソッドは変更なし...
   // ローカルストレージからデータを取得（最適化版）
   getData<T>(key: string, defaultValue: T): T {
     try {

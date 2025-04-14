@@ -390,36 +390,43 @@ const App: React.FC = () => {
       const dateStr = format(selectedSchedule.date, "yyyy-MM-dd");
       const isUpdate = !!selectedSchedule.schedule;
       
+      // undefinedを安全に処理するための修正
+      const safeDetails = scheduleFormData.details || null; // undefinedの場合はnullに
+      const safeColor = scheduleFormData.color || '#4A90E2'; // デフォルト色を設定
+      const safeEmployeeIds = scheduleFormData.employeeIds || [];
+      
       // 既存のスケジュールデータのコピーを作成
       let newSchedules = [...scheduleData];
       
       // 更新の場合
       if (isUpdate && selectedSchedule.schedule) {
-        newSchedules = newSchedules.map(item => 
-          item.id === selectedSchedule.schedule?.id 
-            ? { 
-                ...item, 
-                title: scheduleFormData.title, 
-                employeeIds: scheduleFormData.employeeIds,
-                employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
-                details: scheduleFormData.details,
-                color: scheduleFormData.color
-              }
-            : item
-        );
+        newSchedules = newSchedules.map(item => {
+          if (item.id === selectedSchedule.schedule?.id) {
+            return {
+              ...item,
+              title: scheduleFormData.title,
+              employeeIds: safeEmployeeIds,
+              employeeId: safeEmployeeIds[0] || "",
+              details: safeDetails,
+              color: safeColor
+            } as ScheduleItem; // 型アサーションで型エラーを回避
+          }
+          return item;
+        });
       } else {
         // 新規作成の場合
-        newSchedules.push({
+        const newSchedule: ScheduleItem = {
           id: Date.now().toString(),
           date: dateStr,
           title: scheduleFormData.title,
-          employeeIds: scheduleFormData.employeeIds,
-          employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
-          details: scheduleFormData.details,
-          color: scheduleFormData.color
-        });
+          employeeIds: safeEmployeeIds,
+          employeeId: safeEmployeeIds[0] || "",
+          details: safeDetails,
+          color: safeColor
+        };
+        newSchedules.push(newSchedule);
       }
-        
+      
       setSyncProgress(40);
       
       // 状態を更新

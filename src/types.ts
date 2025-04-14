@@ -12,8 +12,8 @@ export interface ScheduleItem {
   employeeIds?: string[]; // 複数従業員対応
   date: string;
   title: string;
-  details?: string;
-  color?: string;
+  details?: string | null; // nullも許容するように修正
+  color?: string | null; // 同様にnullも許容
 }
 
 export interface CalendarDate {

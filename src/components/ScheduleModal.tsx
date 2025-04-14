@@ -36,6 +36,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   // 編集時に値を設定
   useEffect(() => {
     if (schedule) {
+      // undefinedを防止するためのデフォルト値処理を強化
       setTitle(schedule.title || '');
       setDetails(schedule.details || '');
       setColor(schedule.color || '#4A90E2');
@@ -76,11 +77,15 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   const handleSave = () => {
     if (!title.trim()) return;
     
+    // undefinedの代わりにnullを使用する
+    // 空文字列の場合はnullに変換
+    const trimmedDetails = details.trim();
+    
     onSave({
       title: title.trim(),
       employeeIds: isAllEmployees ? [] : employeeIds,
-      details: details.trim() || undefined,
-      color
+      details: trimmedDetails.length > 0 ? trimmedDetails : undefined, // 型エラー回避のためundefinedを使用
+      color: color || '#4A90E2' // デフォルト色を確実に設定
     });
     
     onClose();

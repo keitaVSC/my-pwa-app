@@ -99,8 +99,8 @@ interface ScheduleItem {
   employeeIds?: string[];
   date: string;
   title: string;
-  details?: string;
-  color?: string;
+  details?: string | null; // nullも許容するように修正
+  color?: string | null; // nullも許容するように修正
 }
 
 // コレクションの参照をキャッシュして再利用
@@ -118,7 +118,21 @@ const logError = (operation: string, error: any): void => {
   console.error(`Firebase ${operation} error:`, error);
 };
 
-// firebase.ts の一部を修正
+// Firebaseのデータを正規化する関数（undefinedをnullに変換）
+const sanitizeData = <T extends Record<string, any>>(data: T): T => {
+  // 新しいオブジェクトを作成して型を維持
+  const result = { ...data } as T;
+  
+  // undefinedをnullに変換
+  Object.keys(result).forEach(key => {
+    if ((result as any)[key] === undefined) {
+      (result as any)[key] = null;
+    }
+  });
+  
+  return result;
+};
+
 // 接続リトライロジックの改善
 const withRetry = async <T>(
   operation: () => Promise<T>,
@@ -342,8 +356,9 @@ export const FirebaseService = {
         let currentBatch = writeBatch(getDb());
         
         chunk.forEach(({ id, data }) => {
+          const sanitizedData = sanitizeData(data); // undefinedをnullに変換
           const docRef = doc(getDb(), COLLECTIONS.ATTENDANCE, id);
-          currentBatch.set(docRef, data);
+          currentBatch.set(docRef, sanitizedData);
           operationsDone++;
           successCount++;
         });
@@ -434,6 +449,14 @@ export const FirebaseService = {
     if (!data || data.length === 0) return true;
     
     try {
+      // データを安全に変換して undefined 値を除去
+      const sanitizedData = data.map(item => ({
+        ...item,
+        details: item.details === undefined ? null : item.details,
+        color: item.color || '#4A90E2', // デフォルト色を設定
+        employeeIds: item.employeeIds || []
+      }));
+      
       // バッチ処理の制限に関する定数
       const BATCH_SIZE = 450;
       const CHUNK_SIZE = 100;
@@ -466,17 +489,17 @@ export const FirebaseService = {
       const newDataMap = new Map<string, ScheduleItem>();
       
       // チャンク処理でUIブロッキングを防止
-      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-        const chunk = data.slice(i, Math.min(i + CHUNK_SIZE, data.length));
+      for (let i = 0; i < sanitizedData.length; i += CHUNK_SIZE) {
+        const chunk = sanitizedData.slice(i, Math.min(i + CHUNK_SIZE, sanitizedData.length));
         
         chunk.forEach(item => {
           newDataMap.set(item.id, item);
         });
         
         // 処理の合間にメインスレッドに制御を戻す
-        if (i + CHUNK_SIZE < data.length) {
+        if (i + CHUNK_SIZE < sanitizedData.length) {
           await yieldToMain();
-          reportProgress(i, data.length * 2); // マッピング段階を進捗の前半とする
+          reportProgress(i, sanitizedData.length * 2); // マッピング段階を進捗の前半とする
         }
       }
       
@@ -508,7 +531,8 @@ export const FirebaseService = {
             
             // 内容が異なる場合のみ更新対象に追加
             if (JSON.stringify(existingData) !== JSON.stringify(newData)) {
-              toUpsert.push(newData);
+              // 明示的な型キャストでTypeScriptエラーを解決
+              toUpsert.push(newData as ScheduleItem);
             }
             
             // 処理済みのため削除
@@ -521,13 +545,13 @@ export const FirebaseService = {
         // 処理の合間にメインスレッドに制御を戻す
         if (i + CHUNK_SIZE < totalDocs) {
           await yieldToMain();
-          reportProgress(data.length + processedDocs, data.length * 2 + totalDocs);
+          reportProgress(sanitizedData.length + processedDocs, sanitizedData.length * 2 + totalDocs);
         }
       }
       
       // 残りの新規データを追加
       newDataMap.forEach(item => {
-        toUpsert.push(item);
+        toUpsert.push(item as ScheduleItem);
       });
       
       // 操作数の集計
@@ -563,8 +587,16 @@ export const FirebaseService = {
         let currentBatch = writeBatch(getDb());
         
         chunk.forEach(item => {
+          // Firestoreに保存する前に最終チェック（ここでundefinedをnullに変換）
+          const processedItem = {
+            ...item,
+            details: item.details === undefined ? null : item.details,
+            color: item.color || '#4A90E2',
+            employeeIds: item.employeeIds || []
+          };
           const docRef = doc(getDb(), COLLECTIONS.SCHEDULE, item.id);
-          currentBatch.set(docRef, item);
+          // Firestoreに保存する際は型チェックを無視
+          currentBatch.set(docRef, processedItem as any);
           operationsDone++;
           successCount++;
         });
@@ -686,7 +718,9 @@ export const FirebaseService = {
     try {
       return await withRetry(async () => {
         const settingsRef = doc(getDb(), COLLECTIONS.SETTINGS, key);
-        await setDoc(settingsRef, { value });
+        // undefined値を処理
+        const safeValue = value === undefined ? null : value;
+        await setDoc(settingsRef, { value: safeValue });
         return true;
       });
     } catch (error) {
