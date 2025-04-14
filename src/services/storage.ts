@@ -17,11 +17,6 @@ const USE_FIREBASE = true; // Firebaseを使用するかどうか
 const USE_INDEXED_DB = true; // IndexedDBを使用するかどうか
 const isDev = process.env.NODE_ENV === 'development';
 
-// 処理をチャンク化するための最小データ数
-const CHUNKING_THRESHOLD = 500;
-// 1回の処理でのチャンクサイズ
-const CHUNK_SIZE = 250;
-
 // ロギング関数
 const logInfo = (message: string, ...args: any[]) => {
   if (isDev) console.log(message, ...args);
@@ -48,35 +43,12 @@ const yieldToMain = async (): Promise<void> => {
 
 // ストレージサービス
 export const StorageService = {
-  // AsyncLocalStorage実装 - 巨大なデータを分割保存してUIブロッキングを防止
+  // LocalStorage実装の修正版 - チャンク処理を簡素化
   async saveToLocalStorage<T>(key: string, data: T): Promise<boolean> {
     try {
-      // 小さなデータは直接保存
-      if (!Array.isArray(data) || data.length < CHUNKING_THRESHOLD) {
-        localStorage.setItem(key, JSON.stringify(data));
-        return true;
-      }
-      
-      // 大きな配列データはチャンク分割して保存
-      const arrayData = data as unknown as any[];
-      
-      // メインスレッドへの影響を最小限にするために処理を分割
-      for (let i = 0; i < arrayData.length; i += CHUNK_SIZE) {
-        // データをチャンク化
-        const chunk = arrayData.slice(i, Math.min(i + CHUNK_SIZE, arrayData.length));
-        
-        // チャンク処理の間にメインスレッドに制御を戻す
-        if (i > 0 && i % (CHUNK_SIZE * 2) === 0) {
-          await yieldToMain();
-        }
-        
-        if (i === 0) {
-          // 最初のチャンクは直接保存
-          localStorage.setItem(key, JSON.stringify(arrayData));
-        }
-      }
-      
-      logInfo(`${key}をローカルストレージに保存しました (分割処理)`);
+      // データをJSON文字列に変換して保存
+      localStorage.setItem(key, JSON.stringify(data));
+      logInfo(`${key}をローカルストレージに保存しました`);
       return true;
     } catch (error) {
       logError(`ローカルストレージへの保存に失敗しました: ${key}`, error);
@@ -87,11 +59,9 @@ export const StorageService = {
           // クリティカルでないデータを削除
           this.cleanupLocalStorage();
           
-          // 再試行（小規模なデータのみ）
-          if (!Array.isArray(data) || data.length < 50) {
-            localStorage.setItem(key, JSON.stringify(data));
-            return true;
-          }
+          // 再試行
+          localStorage.setItem(key, JSON.stringify(data));
+          return true;
         } catch (retryError) {
           logError('ローカルストレージのクリーンアップ後も保存に失敗:', retryError);
         }
@@ -125,81 +95,82 @@ export const StorageService = {
     }
   },
   
-// データ保存の安定性改善版
-async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
-  try {
-    // ローカルストレージへの保存（最優先で実行）
-    if (progressCallback) progressCallback('ローカルストレージに保存中...', 10);
-    const localStorageSuccess = await this.saveToLocalStorage(key, data);
-    
-    if (progressCallback) progressCallback('ローカルストレージ完了', 30);
-    
-    // メインスレッドをブロックしないよう制御を戻す
-    await new Promise(resolve => setTimeout(resolve, 10));
-    
-    // IndexedDBへの保存
-    let indexedDBSuccess = false;
-    if (USE_INDEXED_DB) {
-      if (progressCallback) progressCallback('IndexedDBに保存中...', 40);
+  // データ保存の安定性改善版
+  async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
+    try {
+      // ローカルストレージへの保存（最優先で実行）
+      if (progressCallback) progressCallback('ローカルストレージに保存中...', 10);
+      const localStorageSuccess = await this.saveToLocalStorage(key, data);
       
-      try {
-        // 主要データはIndexedDBにも保存
-        if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
-          indexedDBSuccess = await IndexedDBService.saveAttendanceData(data as any);
-        } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
-          indexedDBSuccess = await IndexedDBService.saveScheduleData(data as any);
-        } else {
-          // 設定データはシンプルなkey-valueとして保存
-          indexedDBSuccess = await IndexedDBService.saveSetting(key, data);
-        }
-        
-        if (progressCallback) progressCallback('IndexedDB完了', 60);
-        
-        // UIブロッキングを防止
-        await new Promise(resolve => setTimeout(resolve, 10));
-      } catch (error) {
-        logError(`IndexedDBへの保存に失敗しました: ${key}`, error);
-      }
-    }
-    
-    // Firebase保存（オンライン時のみ）
-    let firebaseSuccess = false;
-    if (USE_FIREBASE && navigator.onLine) {
-      if (progressCallback) progressCallback('Firebaseに保存中...', 70);
+      if (progressCallback) progressCallback('ローカルストレージ完了', 30);
       
-      try {
-        switch (key) {
-          case STORAGE_KEYS.ATTENDANCE_DATA:
-            firebaseSuccess = await FirebaseService.saveAttendanceData(data as any);
-            break;
-          case STORAGE_KEYS.SCHEDULE_DATA:
-            firebaseSuccess = await FirebaseService.saveScheduleData(data as any);
-            break;
-          case STORAGE_KEYS.ADMIN_MODE:
-          case STORAGE_KEYS.CURRENT_VIEW:
-          case STORAGE_KEYS.CURRENT_DATE:
-          case STORAGE_KEYS.SELECTED_EMPLOYEE:
-            firebaseSuccess = await FirebaseService.saveSettings(key, data);
-            break;
-        }
+      // メインスレッドをブロックしないよう制御を戻す
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // IndexedDBへの保存
+      let indexedDBSuccess = false;
+      if (USE_INDEXED_DB) {
+        if (progressCallback) progressCallback('IndexedDBに保存中...', 40);
         
-        if (progressCallback) progressCallback('Firebase完了', 100);
-      } catch (error) {
-        logError(`Firebaseへの保存に失敗しました: ${key}`, error);
+        try {
+          // 主要データはIndexedDBにも保存
+          if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
+            indexedDBSuccess = await IndexedDBService.saveAttendanceData(data as any);
+          } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
+            indexedDBSuccess = await IndexedDBService.saveScheduleData(data as any);
+          } else {
+            // 設定データはシンプルなkey-valueとして保存
+            indexedDBSuccess = await IndexedDBService.saveSetting(key, data);
+          }
+          
+          if (progressCallback) progressCallback('IndexedDB完了', 60);
+          
+          // UIブロッキングを防止
+          await new Promise(resolve => setTimeout(resolve, 10));
+        } catch (error) {
+          logError(`IndexedDBへの保存に失敗しました: ${key}`, error);
+        }
       }
+      
+      // Firebase保存（オンライン時のみ）
+      let firebaseSuccess = false;
+      if (USE_FIREBASE && navigator.onLine) {
+        if (progressCallback) progressCallback('Firebaseに保存中...', 70);
+        
+        try {
+          switch (key) {
+            case STORAGE_KEYS.ATTENDANCE_DATA:
+              firebaseSuccess = await FirebaseService.saveAttendanceData(data as any);
+              break;
+            case STORAGE_KEYS.SCHEDULE_DATA:
+              firebaseSuccess = await FirebaseService.saveScheduleData(data as any);
+              break;
+            case STORAGE_KEYS.ADMIN_MODE:
+            case STORAGE_KEYS.CURRENT_VIEW:
+            case STORAGE_KEYS.CURRENT_DATE:
+            case STORAGE_KEYS.SELECTED_EMPLOYEE:
+              firebaseSuccess = await FirebaseService.saveSettings(key, data);
+              break;
+          }
+          
+          if (progressCallback) progressCallback('Firebase完了', 100);
+        } catch (error) {
+          logError(`Firebaseへの保存に失敗しました: ${key}`, error);
+        }
+      }
+      
+      // 最終ステップでプログレスを100%に設定
+      if (progressCallback) progressCallback('完了', 100);
+      
+      // すべてのストレージ操作が失敗した場合のみfalseを返す
+      return localStorageSuccess || indexedDBSuccess || firebaseSuccess;
+    } catch (error) {
+      logError(`データ保存エラー: ${key}`, error);
+      return false;
     }
-    
-    // 最終ステップでプログレスを100%に設定
-    if (progressCallback) progressCallback('完了', 100);
-    
-    // すべてのストレージ操作が失敗した場合のみfalseを返す
-    return localStorageSuccess || indexedDBSuccess || firebaseSuccess;
-  } catch (error) {
-    logError(`データ保存エラー: ${key}`, error);
-    return false;
-  }
-},
+  },
   
+  // 他のメソッドは変更なし...
   // ローカルストレージからデータを取得（最適化版）
   getData<T>(key: string, defaultValue: T): T {
     try {
@@ -327,7 +298,7 @@ async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progr
     if (isDev) logInfo(`${key}のデータソース: ${dataSource}`);
     return data;
   },
-  
+    
   // 特定の月のデータを削除（最適化版）
   async deleteMonthData(yearMonth: string): Promise<boolean> {
     try {

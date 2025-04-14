@@ -114,6 +114,17 @@ const workTypes = [
   { id: "特", label: "特" }
 ];
 
+// 集計対象の勤務区分 (表示順序に従って定義)
+const summaryWorkTypes = [
+  "休", "年", "Ap", "特", "a1/P", "a2/P", "A/p1", "A/p2", "a1/p", "a2/p", "a/p1", "a/p2", "A", "P", 
+  "p3", "a3", "p2", "a2", "p1", "a1", "p", "a", "Fビ", "日", "遅1", "遅2", "早1", "早2", "半1", "半5", "短", "短土"
+];
+
+// 警告対象の勤務区分
+const warningWorkTypes = [
+  "休", "年", "Ap", "特", "a1/P", "a2/P", "A/p1", "A/p2", "a1/p", "a2/p", "a/p1", "a/p2", "A", "P"
+];
+
 const App: React.FC = () => {
   // 状態管理
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -195,6 +206,78 @@ const App: React.FC = () => {
     );
     return record ? record.workType : null;
   }, [attendanceData]);
+
+  // 勤務区分ごとの日次集計を行う関数
+  const getDailySummary = useCallback((date: Date): { [workType: string]: number } => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    const summary: { [workType: string]: number } = {};
+    
+    // 指定日付の勤務区分を集計
+    attendanceData.forEach(record => {
+      if (record.date === dateStr) {
+        summary[record.workType] = (summary[record.workType] || 0) + 1;
+      }
+    });
+    
+    return summary;
+  }, [attendanceData]);
+
+  // 特定の従業員の月次集計を行う関数
+  const getEmployeeMonthSummary = useCallback((employeeId: string): number => {
+    // 当月の日付範囲を取得
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthPrefix = format(new Date(year, month, 1), "yyyy-MM");
+    
+    // 集計初期値
+    let totalCount = 0;
+    
+    // 従業員の当月のデータをフィルタリング
+    const employeeMonthData = attendanceData.filter(
+      record => record.employeeId === employeeId && record.date.startsWith(monthPrefix)
+    );
+    
+    // 勤務区分ごとに集計
+    employeeMonthData.forEach(record => {
+      const recordDate = new Date(record.date);
+      const dayOfWeek = recordDate.getDay();
+      
+      if (record.workType === "休") {
+        // 休の場合: 土曜日なら0.5、それ以外なら1
+        totalCount += dayOfWeek === 6 ? 0.5 : 1;
+      } else if (record.workType === "A" || record.workType === "P") {
+        // AとPは0.5
+        totalCount += 0.5;
+      }
+    });
+    
+    return totalCount;
+  }, [attendanceData, currentDate]);
+
+  // 特定の日付の勤務区分が警告条件に一致するかを確認
+  const isWarningCondition = useCallback((date: Date): boolean => {
+    const dayOfWeek = date.getDay();
+    const summary = getDailySummary(date);
+    
+    // 警告対象の勤務区分の合計を計算
+    let warningTotal = 0;
+    warningWorkTypes.forEach(type => {
+      if (summary[type]) {
+        warningTotal += summary[type];
+      }
+    });
+    
+    // 平日は7人以上、土曜日は5人以上で警告
+    return (dayOfWeek === 6 && warningTotal >= 5) || // 土曜日
+           (dayOfWeek !== 0 && dayOfWeek !== 6 && warningTotal >= 7); // 平日
+  }, [getDailySummary]);
+
+  // 日付ごとの集計が存在する勤務区分のみをフィルタリングして返す関数
+  const getDailyWorkTypeKeys = useCallback((date: Date): string[] => {
+    const summary = getDailySummary(date);
+    // 集計値が存在する勤務区分のみをフィルタリング
+    return summaryWorkTypes.filter(type => summary[type] && summary[type] > 0);
+  }, [getDailySummary]);
 
   // 特定の日付の予定を取得する関数
   const getSchedulesForDate = useCallback((date: Date, employeeId?: number): ScheduleItem[] => {
@@ -284,52 +367,52 @@ const App: React.FC = () => {
     }
   }, [selectedCell, attendanceData, employees, showToast, isOffline]);
 
-// 予定の保存処理
-const handleScheduleSave = useCallback(async (scheduleFormData: { 
-  title: string; 
-  employeeIds: string[]; 
-  details?: string; 
-  color?: string;
-}) => {
-  if (!selectedSchedule) return;
-  
-  try {
-    setIsSyncing(true);
-    setSyncProgress(10);
+  // 予定の保存処理
+  const handleScheduleSave = useCallback(async (scheduleFormData: { 
+    title: string; 
+    employeeIds: string[]; 
+    details?: string; 
+    color?: string;
+  }) => {
+    if (!selectedSchedule) return;
     
-    const dateStr = format(selectedSchedule.date, "yyyy-MM-dd");
-    const isUpdate = !!selectedSchedule.schedule;
-    
-    // 修正: 既存のスケジュールデータのコピーを作成
-    let newSchedules = [...scheduleData];
-    
-    // 更新の場合
-    if (isUpdate && selectedSchedule.schedule) {
-      newSchedules = newSchedules.map(item => 
-        item.id === selectedSchedule.schedule?.id 
-          ? { 
-              ...item, 
-              title: scheduleFormData.title, 
-              employeeIds: scheduleFormData.employeeIds,
-              employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
-              details: scheduleFormData.details,
-              color: scheduleFormData.color
-            }
-          : item
-      );
-    } else {
-      // 新規作成の場合
-      newSchedules.push({
-        id: Date.now().toString(),
-        date: dateStr,
-        title: scheduleFormData.title,
-        employeeIds: scheduleFormData.employeeIds,
-        employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
-        details: scheduleFormData.details,
-        color: scheduleFormData.color
-      });
-    }
+    try {
+      setIsSyncing(true);
+      setSyncProgress(10);
       
+      const dateStr = format(selectedSchedule.date, "yyyy-MM-dd");
+      const isUpdate = !!selectedSchedule.schedule;
+      
+      // 修正: 既存のスケジュールデータのコピーを作成
+      let newSchedules = [...scheduleData];
+      
+      // 更新の場合
+      if (isUpdate && selectedSchedule.schedule) {
+        newSchedules = newSchedules.map(item => 
+          item.id === selectedSchedule.schedule?.id 
+            ? { 
+                ...item, 
+                title: scheduleFormData.title, 
+                employeeIds: scheduleFormData.employeeIds,
+                employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
+                details: scheduleFormData.details,
+                color: scheduleFormData.color
+              }
+            : item
+        );
+      } else {
+        // 新規作成の場合
+        newSchedules.push({
+          id: Date.now().toString(),
+          date: dateStr,
+          title: scheduleFormData.title,
+          employeeIds: scheduleFormData.employeeIds,
+          employeeId: scheduleFormData.employeeIds[0] || "", // 後方互換性のため
+          details: scheduleFormData.details,
+          color: scheduleFormData.color
+        });
+      }
+        
       setSyncProgress(40);
       
       // 状態を更新
@@ -409,78 +492,78 @@ const handleScheduleSave = useCallback(async (scheduleFormData: {
     });
   }, []);
 
-// syncData関数の改善版
-const syncData = useCallback(async () => {
-  if (isOffline) {
-    showToast("オフラインのため同期できません", "warning");
-    return;
-  }
-  
-  try {
-    setIsSyncing(true);
-    setSyncProgress(0);
-    
-    // 先にネットワーク接続を確認
-    const isConnected = await new Promise<boolean>(resolve => {
-      // 簡易的な接続チェック
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-        resolve(false);
-      }, 5000);
-      
-      fetch('https://www.google.com/generate_204', {
-        method: 'HEAD',
-        signal: controller.signal
-      })
-      .then(() => {
-        clearTimeout(timeoutId);
-        resolve(true);
-      })
-      .catch(() => {
-        clearTimeout(timeoutId);
-        resolve(false);
-      });
-    });
-    
-    if (!isConnected) {
-      setIsSyncing(false);
-      setIsOffline(true);
-      showToast("ネットワーク接続を確認できません", "warning");
+  // syncData関数の改善版
+  const syncData = useCallback(async () => {
+    if (isOffline) {
+      showToast("オフラインのため同期できません", "warning");
       return;
     }
     
-    // 勤怠データを同期
-    setSyncProgress(10);
-    const attendanceSuccess = await StorageService.saveData(
-      STORAGE_KEYS.ATTENDANCE_DATA, 
-      attendanceData,
-      (_stage, progress) => setSyncProgress(10 + progress * 0.4)
-    );
-    
-    // 予定データを同期
-    setSyncProgress(50);
-    const scheduleSuccess = await StorageService.saveData(
-      STORAGE_KEYS.SCHEDULE_DATA, 
-      scheduleData,
-      (_stage, progress) => setSyncProgress(50 + progress * 0.5)
-    );
-    
-    setSyncProgress(100);
-    setIsSyncing(false);
-    
-    if (attendanceSuccess && scheduleSuccess) {
-      setPendingChanges(false);
-      showToast("データを同期しました", "success");
-    } else {
-      showToast("同期に一部失敗しました", "warning");
+    try {
+      setIsSyncing(true);
+      setSyncProgress(0);
+      
+      // 先にネットワーク接続を確認
+      const isConnected = await new Promise<boolean>(resolve => {
+        // 簡易的な接続チェック
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          resolve(false);
+        }, 5000);
+        
+        fetch('https://www.google.com/generate_204', {
+          method: 'HEAD',
+          signal: controller.signal
+        })
+        .then(() => {
+          clearTimeout(timeoutId);
+          resolve(true);
+        })
+        .catch(() => {
+          clearTimeout(timeoutId);
+          resolve(false);
+        });
+      });
+      
+      if (!isConnected) {
+        setIsSyncing(false);
+        setIsOffline(true);
+        showToast("ネットワーク接続を確認できません", "warning");
+        return;
+      }
+      
+      // 勤怠データを同期
+      setSyncProgress(10);
+      const attendanceSuccess = await StorageService.saveData(
+        STORAGE_KEYS.ATTENDANCE_DATA, 
+        attendanceData,
+        (_stage, progress) => setSyncProgress(10 + progress * 0.4)
+      );
+      
+      // 予定データを同期
+      setSyncProgress(50);
+      const scheduleSuccess = await StorageService.saveData(
+        STORAGE_KEYS.SCHEDULE_DATA, 
+        scheduleData,
+        (_stage, progress) => setSyncProgress(50 + progress * 0.5)
+      );
+      
+      setSyncProgress(100);
+      setIsSyncing(false);
+      
+      if (attendanceSuccess && scheduleSuccess) {
+        setPendingChanges(false);
+        showToast("データを同期しました", "success");
+      } else {
+        showToast("同期に一部失敗しました", "warning");
+      }
+    } catch (error) {
+      console.error('同期エラー:', error);
+      setIsSyncing(false);
+      showToast("同期に失敗しました", "error");
     }
-  } catch (error) {
-    console.error('同期エラー:', error);
-    setIsSyncing(false);
-    showToast("同期に失敗しました", "error");
-  }
-}, [attendanceData, scheduleData, isOffline, showToast]);
+  }, [attendanceData, scheduleData, isOffline, showToast]);
 
   // エクスポート処理
   const exportData = useCallback(() => {
@@ -636,92 +719,211 @@ const syncData = useCallback(async () => {
             </div>
           )}
           
-          {/* メインテーブル */}
-          <div className="overflow-x-auto border rounded shadow relative">
-            <table className="min-w-full border-collapse attendance-table">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 top-0 border p-2 bg-white z-20 min-w-[120px]">従業員名</th>
-                  {datesArray.map(date => {
-                    const dayOfWeek = getDayOfWeek(date);
-                    const { bg, text } = getCellBackground(date);
-                    const holidayName = getHolidayName(date);
-                    
-                    return (
-                      <th 
-                        key={date.getTime()} 
-                        className={`border p-2 ${bg} ${text} whitespace-nowrap min-w-[70px]`}
-                      >
-                        <div className="flex flex-col items-center">
-                          <div className="text-base">{date.getDate()}</div>
-                          <div className="text-xs">{dayOfWeek}</div>
-                          {holidayName && (
-                            <div className="text-xs text-red-500 truncate max-w-[60px]">{holidayName}</div>
-                          )}
+          {/* メインテーブル - 全従業員表示モード */}
+          {!selectedEmployee && (
+            <div className="overflow-x-auto border rounded shadow relative">
+              <table className="min-w-full border-collapse attendance-table">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 top-0 border p-2 bg-white z-20 min-w-[120px]">従業員名</th>
+                    {datesArray.map(date => {
+                      const dayOfWeek = getDayOfWeek(date);
+                      const { bg, text } = getCellBackground(date);
+                      const holidayName = getHolidayName(date);
+                      const isWarning = isWarningCondition(date);
+                      const dailySummary = getDailySummary(date);
+                      const workTypesWithCount = getDailyWorkTypeKeys(date);
+                      
+                      return (
+                        <th 
+                          key={date.getTime()} 
+                          className={`border p-2 ${isWarning ? 'bg-red-100' : bg} ${text} whitespace-nowrap min-w-[70px]`}
+                        >
+                          <div className="flex flex-col items-center">
+                            <div className="text-base">{date.getDate()}</div>
+                            <div className="text-xs">{dayOfWeek}</div>
+                            {holidayName && (
+                              <div className="text-xs text-red-500 truncate max-w-[60px]">{holidayName}</div>
+                            )}
+                            {/* 勤務区分集計を表示 */}
+                            <div className="mt-1 text-xs text-gray-700">
+                              {workTypesWithCount.map(type => (
+                                <div key={type} className="whitespace-nowrap">
+                                  {type}: {dailySummary[type]}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEmployees.map(employee => (
+                    <tr key={employee.id}>
+                      <td className="sticky left-0 border p-2 bg-white font-medium z-10 min-h-[60px]">
+                        <div className="flex flex-col">
+                          <span>{employee.name}</span>
+                          <span className="text-xs text-gray-500">
+                            集計: {getEmployeeMonthSummary(employee.id.toString()).toFixed(1)}
+                          </span>
                         </div>
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEmployees.map(employee => (
-                  <tr key={employee.id}>
+                      </td>
+                      {datesArray.map(date => {
+                        const workType = getEmployeeWorkType(employee.id, date);
+                        const { bg } = getCellBackground(date);
+                        const schedules = getSchedulesForDate(date, employee.id);
+                        const isWarning = isWarningCondition(date);
+                        
+                        return (
+                          <td 
+                            key={`${employee.id}-${date.getTime()}`} 
+                            className={`border p-1 text-center cursor-pointer hover:bg-gray-100 ${isWarning ? 'bg-red-100' : bg} min-h-[60px] relative`}
+                            onClick={() => handleCellClick(employee.id, date)}
+                          >
+                            {/* 勤務区分 */}
+                            <div className={`text-base ${workType ? 'font-bold' : ''} min-h-[24px]`}>
+                              {workType || ""}
+                            </div>
+                            
+                            {/* 予定表示 */}
+                            <div className="mt-1">
+                              {schedules.slice(0, 2).map(schedule => (
+                                <div 
+                                  key={schedule.id}
+                                  onClick={(e) => handleScheduleClick(e, date, schedule)}
+                                  className="text-xs px-1 py-0.5 mb-1 rounded truncate text-white"
+                                  style={{ backgroundColor: schedule.color || '#4A90E2' }}
+                                >
+                                  {schedule.title}
+                                </div>
+                              ))}
+                              {schedules.length > 2 && (
+                                <div className="text-xs text-gray-600 truncate">
+                                  他 {schedules.length - 2} 件
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* 予定追加ボタン */}
+                            <div className="absolute top-0 right-0 p-0.5">
+                              <button
+                                onClick={(e) => handleScheduleClick(e, date)}
+                                className="text-gray-400 hover:text-blue-500 bg-white/50 hover:bg-white/80 rounded-full w-5 h-5 flex items-center justify-center"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* メインテーブル - 個別従業員表示モード */}
+          {selectedEmployee && (
+            <div className="overflow-x-auto border rounded shadow relative">
+              <table className="min-w-full border-collapse attendance-table">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 top-0 border p-2 bg-white z-20 min-w-[120px]">
+                      <div className="flex flex-col">
+                        <span>{employees.find(emp => emp.id.toString() === selectedEmployee)?.name}</span>
+                        <span className="text-xs text-gray-500">
+                          集計: {getEmployeeMonthSummary(selectedEmployee).toFixed(1)}
+                        </span>
+                      </div>
+                    </th>
+                    {datesArray.map(date => {
+                      const dayOfWeek = getDayOfWeek(date);
+                      const { bg, text } = getCellBackground(date);
+                      const holidayName = getHolidayName(date);
+                      
+                      return (
+                        <th 
+                          key={date.getTime()} 
+                          className={`border p-2 ${bg} ${text} whitespace-nowrap min-w-[70px]`}
+                        >
+                          <div className="flex flex-col items-center">
+                            <div className="text-base">{date.getDate()}</div>
+                            <div className="text-xs">{dayOfWeek}</div>
+                            {holidayName && (
+                              <div className="text-xs text-red-500 truncate max-w-[60px]">{holidayName}</div>
+                            )}
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
                     <td className="sticky left-0 border p-2 bg-white font-medium z-10 min-h-[60px]">
-                      {employee.name}
+                      勤務区分
                     </td>
                     {datesArray.map(date => {
-                      const workType = getEmployeeWorkType(employee.id, date);
+                      const employeeId = parseInt(selectedEmployee);
+                      const workType = getEmployeeWorkType(employeeId, date);
                       const { bg } = getCellBackground(date);
-                      const schedules = getSchedulesForDate(date, employee.id);
                       
                       return (
                         <td 
-                          key={`${employee.id}-${date.getTime()}`} 
-                          className={`border p-1 text-center cursor-pointer hover:bg-gray-100 ${bg} min-h-[60px] relative`}
-                          onClick={() => handleCellClick(employee.id, date)}
+                          key={`${employeeId}-${date.getTime()}`} 
+                          className={`border p-1 text-center cursor-pointer hover:bg-gray-100 ${bg} min-h-[60px]`}
+                          onClick={() => handleCellClick(employeeId, date)}
                         >
-                          {/* 勤務区分 */}
-                          <div className={`text-base ${workType ? 'font-bold' : ''} min-h-[24px]`}>
+                          <div className={`text-base ${workType ? 'font-bold' : ''}`}>
                             {workType || ""}
                           </div>
-                          
-                          {/* 予定表示 */}
-                          <div className="mt-1">
-                            {schedules.slice(0, 2).map(schedule => (
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="sticky left-0 border p-2 bg-white font-medium z-10 min-h-[60px]">
+                      予定
+                    </td>
+                    {datesArray.map(date => {
+                      const employeeId = parseInt(selectedEmployee);
+                      const { bg } = getCellBackground(date);
+                      const schedules = getSchedulesForDate(date, employeeId);
+                      
+                      return (
+                        <td 
+                          key={`schedule-${employeeId}-${date.getTime()}`} 
+                          className={`border p-1 ${bg} min-h-[60px] relative`}
+                        >
+                          <div className="flex flex-col items-center">
+                            {schedules.map(schedule => (
                               <div 
                                 key={schedule.id}
                                 onClick={(e) => handleScheduleClick(e, date, schedule)}
-                                className="text-xs px-1 py-0.5 mb-1 rounded truncate text-white"
+                                className="text-xs px-1 py-0.5 mb-1 rounded truncate text-white w-full"
                                 style={{ backgroundColor: schedule.color || '#4A90E2' }}
                               >
                                 {schedule.title}
                               </div>
                             ))}
-                            {schedules.length > 2 && (
-                              <div className="text-xs text-gray-600 truncate">
-                                他 {schedules.length - 2} 件
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* 予定追加ボタン */}
-                          <div className="absolute top-0 right-0 p-0.5">
                             <button
                               onClick={(e) => handleScheduleClick(e, date)}
-                              className="text-gray-400 hover:text-blue-500 bg-white/50 hover:bg-white/80 rounded-full w-5 h-5 flex items-center justify-center"
+                              className="text-gray-400 hover:text-blue-500 mt-1"
                             >
-                              +
+                              + 予定追加
                             </button>
                           </div>
                         </td>
                       );
                     })}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
