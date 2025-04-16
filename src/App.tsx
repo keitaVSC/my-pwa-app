@@ -317,7 +317,7 @@ const App: React.FC = () => {
     setScheduleModalOpen(true);
   }, []);
 
-  // 勤務区分選択後の処理
+  // 勤務区分選択後の処理 - 修正済み（重複保存の削除）
   const handleWorkTypeSelect = useCallback(async (workType: string) => {
     if (!selectedCell) return;
     
@@ -351,8 +351,8 @@ const App: React.FC = () => {
       // データを保存
       setSyncProgress(50);
       
-      // ローカルストレージに直接保存を追加
-      localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newData));
+      // 重複保存を削除 - ローカルストレージへの直接保存は削除
+      // localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newData));
       
       const success = await StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, newData);
       
@@ -374,7 +374,7 @@ const App: React.FC = () => {
     }
   }, [selectedCell, attendanceData, employees, showToast, isOffline]);
 
-  // 予定の保存処理
+  // 予定の保存処理 - 修正済み（重複保存の削除）
   const handleScheduleSave = useCallback(async (scheduleFormData: { 
     title: string; 
     employeeIds: string[]; 
@@ -432,8 +432,8 @@ const App: React.FC = () => {
       // 状態を更新
       setScheduleData(newSchedules);
       
-      // ローカルストレージに直接保存を追加
-      localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
+      // 重複保存を削除 - ローカルストレージへの直接保存は削除
+      // localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
       
       // データを保存
       setSyncProgress(70);
@@ -464,7 +464,7 @@ const App: React.FC = () => {
     }
   }, [selectedSchedule, scheduleData, showToast, isOffline]);
 
-  // 予定の削除処理
+  // 予定の削除処理 - 修正済み（重複保存の削除）
   const handleScheduleDelete = useCallback(async (scheduleId: string) => {
     try {
       setIsSyncing(true);
@@ -478,8 +478,8 @@ const App: React.FC = () => {
       // 状態を更新
       setScheduleData(newSchedules);
       
-      // ローカルストレージに直接保存を追加
-      localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
+      // 重複保存を削除 - ローカルストレージへの直接保存は削除
+      // localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
       
       // データを保存
       setSyncProgress(70);
@@ -652,47 +652,26 @@ const App: React.FC = () => {
     };
   }, [attendanceData.length, scheduleData.length, showToast]);
 
-  // 初期データ読み込み
+  // 初期データ読み込み（修正版）
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
         
-        // まずローカルストレージから直接読み込み
-        let localAttendance = [];
-        let localSchedule = [];
-        
-        try {
-          const storedAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE_DATA);
-          const storedSchedule = localStorage.getItem(STORAGE_KEYS.SCHEDULE_DATA);
-          
-          if (storedAttendance) localAttendance = JSON.parse(storedAttendance);
-          if (storedSchedule) localSchedule = JSON.parse(storedSchedule);
-          
-          console.log('ローカルストレージから読み込み:', 
-            `勤怠データ ${localAttendance.length}件, スケジュールデータ ${localSchedule.length}件`);
-        } catch (localError) {
-          console.error('ローカルストレージからの読み込みに失敗:', localError);
-        }
-        
-        // StorageServiceからデータを読み込む
+        // StorageServiceからデータを読み込む - localStorageのデータは下層で読み込まれる
         const [serviceAttendance, serviceSchedule] = await Promise.all([
           StorageService.getDataAsync<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE_DATA, []),
           StorageService.getDataAsync<ScheduleItem[]>(STORAGE_KEYS.SCHEDULE_DATA, [])
         ]);
         
-        console.log('StorageServiceから読み込み:', 
+        console.log('データ読み込み完了:', 
           `勤怠データ ${serviceAttendance.length}件, スケジュールデータ ${serviceSchedule.length}件`);
         
-        // 最新のデータを使用（サービスのデータが空の場合はローカルデータを使用）
-        const finalAttendance = serviceAttendance.length > 0 ? serviceAttendance : localAttendance;
-        const finalSchedule = serviceSchedule.length > 0 ? serviceSchedule : localSchedule;
-        
-        setAttendanceData(finalAttendance);
-        setScheduleData(finalSchedule);
+        setAttendanceData(serviceAttendance);
+        setScheduleData(serviceSchedule);
         
         // オンライン状態で既存データがある場合、同期フラグを立てる
-        if (navigator.onLine && (finalAttendance.length > 0 || finalSchedule.length > 0)) {
+        if (navigator.onLine && (serviceAttendance.length > 0 || serviceSchedule.length > 0)) {
           setPendingChanges(true);
         }
       } catch (error) {

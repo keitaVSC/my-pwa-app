@@ -76,6 +76,14 @@ const sanitizeObjectData = <T extends object>(obj: T): T => {
   return result;
 };
 
+// データの識別子を生成する関数 - 重複防止のため
+const generateDataId = <T extends { id?: string }>(item: T): string => {
+  if (item.id) return item.id;
+  
+  // IDがない場合はタイムスタンプとランダム文字列を組み合わせて生成
+  return `${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+};
+
 // ストレージサービス
 export const StorageService = {
   // LocalStorage実装の修正版 - チャンク処理を簡素化
@@ -132,11 +140,30 @@ export const StorageService = {
     }
   },
   
-  // データ保存の安定性改善版
+  // データ保存の安定性改善版 - 重複保存防止のための修正
   async saveData<T>(key: string, data: T, progressCallback?: (stage: string, progress: number) => void): Promise<boolean> {
     try {
       // undefinedをnullに変換して安全なデータにする
       const safeData = sanitizeData(data);
+      
+      // データ保存前に前回のデータが存在するかチェック
+      let previousData: any = null;
+      try {
+        const savedData = localStorage.getItem(key);
+        if (savedData) {
+          previousData = JSON.parse(savedData);
+        }
+      } catch (e) {
+        // 解析エラーは無視して新規保存として扱う
+        logWarn(`前回データの解析エラー: ${key}`, e);
+      }
+      
+      // 前回と同じデータなら保存をスキップする判定（オプション）
+      if (previousData && JSON.stringify(previousData) === JSON.stringify(safeData)) {
+        logInfo(`${key}のデータに変更がないためスキップします`);
+        if (progressCallback) progressCallback('変更なし - スキップ', 100);
+        return true;
+      }
       
       // ローカルストレージへの保存（最優先で実行）
       if (progressCallback) progressCallback('ローカルストレージに保存中...', 10);
@@ -229,12 +256,68 @@ export const StorageService = {
     }
   },
   
-  // データを非同期で取得（最適化版）
+  // データを非同期で取得（改善版 - データの整合性確保）
   async getDataAsync<T>(key: string, defaultValue: T): Promise<T> {
     let data = defaultValue;
     let dataSource = "default";
+    let dataTimestamp = 0;
     
-    // 1. まずFirebaseから取得を試みる (最新のデータを取得) - オンライン時のみ
+    // まずローカルストレージから読み込み（高速アクセスのため）
+    try {
+      const localData = this.getData(key, defaultValue);
+      if (localData !== defaultValue) {
+        data = localData;
+        dataSource = "LocalStorage";
+        // データタイムスタンプを現在時刻とする（厳密な比較は難しいため）
+        dataTimestamp = Date.now() - 60000; // 1分前と仮定
+      }
+    } catch (error) {
+      logError(`ローカルストレージからの読み込みに失敗しました: ${key}`, error);
+    }
+    
+    // IndexedDBからも読み込み（ローカルストレージより信頼性が高い可能性）
+    if (USE_INDEXED_DB) {
+      try {
+        let indexedDBData = null;
+        
+        if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
+          indexedDBData = await IndexedDBService.getAttendanceData();
+        } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
+          indexedDBData = await IndexedDBService.getScheduleData();
+        } else {
+          indexedDBData = await IndexedDBService.getSetting(key);
+        }
+        
+        if (indexedDBData && (Array.isArray(indexedDBData) ? indexedDBData.length > 0 : true)) {
+          // IndexedDBのデータが古い可能性があるため、データ量を比較
+          // ここではより多くのデータを持つ方を採用（簡易的な判断）
+          const currentDataSize = Array.isArray(data) ? data.length : (data ? 1 : 0);
+          const newDataSize = Array.isArray(indexedDBData) ? indexedDBData.length : 1;
+          
+          if (dataSource === "default" || newDataSize > currentDataSize) {
+            data = indexedDBData as any;
+            dataSource = "IndexedDB";
+            dataTimestamp = Date.now() - 30000; // 30秒前と仮定
+            
+            // ローカルストレージとの同期（バックグラウンドで実行）
+            if (dataSource === "IndexedDB" && newDataSize > currentDataSize) {
+              setTimeout(() => {
+                this.saveToLocalStorage(key, data).catch(e => 
+                  logError('IndexedDBデータのローカル同期に失敗:', e)
+                );
+              }, 100);
+            }
+          }
+        }
+        
+        // UIブロッキングを防止
+        await yieldToMain();
+      } catch (error) {
+        logWarn(`IndexedDBからの読み込みに失敗しました: ${key}`, error);
+      }
+    }
+    
+    // Firebaseからも読み込み（オンライン時のみ - 最新データの可能性が高い）
     if (USE_FIREBASE && navigator.onLine) {
       try {
         let firebaseData = null;
@@ -255,86 +338,51 @@ export const StorageService = {
         }
         
         if (firebaseData && (Array.isArray(firebaseData) ? firebaseData.length > 0 : true)) {
-          data = firebaseData as any;
-          dataSource = "Firebase";
+          // データサイズを比較して採用するか判断
+          // ここでは最新（Firebaseから取得したデータ）を優先
+          const currentDataSize = Array.isArray(data) ? data.length : (data ? 1 : 0);
+          const newDataSize = Array.isArray(firebaseData) ? firebaseData.length : 1;
           
-          // Firebaseから取得できたデータはローカルストレージに保存
-          // UIブロックを避けるため、保存は非同期で行う
-          this.saveToLocalStorage(key, data).catch(e => 
-            logError('Firebaseデータのローカル保存に失敗:', e)
-          );
-          
-          // IndexedDBへの保存もバックグラウンドで実行
-          if (USE_INDEXED_DB) {
+          // Firebaseデータが空でなく、現在のデータより新しいか多い場合に採用
+          if (dataSource === "default" || newDataSize >= currentDataSize || 
+              (dataSource !== "Firebase" && newDataSize > 0)) {
+            data = firebaseData as any;
+            dataSource = "Firebase";
+            
+            // ローカルストレージとIndexedDBに同期（バックグラウンドで実行）
             setTimeout(() => {
-              try {
-                if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
-                  IndexedDBService.saveAttendanceData(data as any).catch(() => {});
-                } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
-                  IndexedDBService.saveScheduleData(data as any).catch(() => {});
-                } else {
-                  IndexedDBService.saveSetting(key, data).catch(() => {});
+              this.saveToLocalStorage(key, data).catch(e => 
+                logError('Firebaseデータのローカル保存に失敗:', e)
+              );
+              
+              if (USE_INDEXED_DB) {
+                try {
+                  if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
+                    IndexedDBService.saveAttendanceData(data as any).catch(() => {});
+                  } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
+                    IndexedDBService.saveScheduleData(data as any).catch(() => {});
+                  } else {
+                    IndexedDBService.saveSetting(key, data).catch(() => {});
+                  }
+                } catch (syncError) {
+                  // 同期エラーは無視（重要度低）
                 }
-              } catch (syncError) {
-                // 同期エラーは無視（重要度低）
               }
             }, 100);
           }
-          
-          // メインスレッドをブロックしないよう制御を戻す
-          await yieldToMain();
         }
+        
+        // メインスレッドをブロックしないよう制御を戻す
+        await yieldToMain();
       } catch (error) {
         logWarn(`Firebaseからの読み込みに失敗しました: ${key}`, error);
-        // エラーでも継続
       }
     }
     
-    // 2. Firebaseから取得できなかった場合はIndexedDBを試す
-    if (dataSource === "default" && USE_INDEXED_DB) {
-      try {
-        let indexedDBData = null;
-        
-        if (key === STORAGE_KEYS.ATTENDANCE_DATA) {
-          indexedDBData = await IndexedDBService.getAttendanceData();
-        } else if (key === STORAGE_KEYS.SCHEDULE_DATA) {
-          indexedDBData = await IndexedDBService.getScheduleData();
-        } else {
-          indexedDBData = await IndexedDBService.getSetting(key);
-        }
-        
-        if (indexedDBData && (Array.isArray(indexedDBData) ? indexedDBData.length > 0 : true)) {
-          data = indexedDBData as any;
-          dataSource = "IndexedDB";
-          
-          // IndexedDBから取得できたデータはローカルストレージにも同期
-          // UIブロックを避けるため非同期で実行
-          this.saveToLocalStorage(key, data).catch(e => 
-            logError('IndexedDBデータのローカル同期に失敗:', e)
-          );
-          
-          // UIブロッキングを防止
-          await yieldToMain();
-        }
-      } catch (error) {
-        logWarn(`IndexedDBからの読み込みに失敗しました: ${key}`, error);
-      }
+    if (isDev) {
+      logInfo(`${key}のデータソース: ${dataSource}, サイズ: ${Array.isArray(data) ? data.length : 'N/A'}`);
     }
     
-    // 3. 最後にローカルストレージを試す
-    if (dataSource === "default") {
-      try {
-        const localData = this.getData(key, defaultValue);
-        if (localData !== defaultValue) {
-          data = localData;
-          dataSource = "LocalStorage";
-        }
-      } catch (error) {
-        logError(`ローカルストレージからの読み込みに失敗しました: ${key}`, error);
-      }
-    }
-    
-    if (isDev) logInfo(`${key}のデータソース: ${dataSource}`);
     return data;
   },
     

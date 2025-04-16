@@ -110,6 +110,8 @@ export const IndexedDBService = {
             const attendanceStore = db.createObjectStore(STORES.ATTENDANCE, { keyPath: 'id' });
             attendanceStore.createIndex('employeeId', 'employeeId', { unique: false });
             attendanceStore.createIndex('date', 'date', { unique: false });
+            // 複合インデックスを追加して検索を最適化
+            attendanceStore.createIndex('employeeDate', ['employeeId', 'date'], { unique: true });
             logInfo('出勤データストアを作成しました');
           }
           
@@ -117,6 +119,8 @@ export const IndexedDBService = {
           if (!db.objectStoreNames.contains(STORES.SCHEDULE)) {
             const scheduleStore = db.createObjectStore(STORES.SCHEDULE, { keyPath: 'id' });
             scheduleStore.createIndex('date', 'date', { unique: false });
+            // 日付+従業員IDのインデックスを追加
+            scheduleStore.createIndex('dateEmployee', ['date', 'employeeId'], { unique: false });
             logInfo('スケジュールストアを作成しました');
           }
           
@@ -153,7 +157,7 @@ export const IndexedDBService = {
     }
   },
 
-  // 勤怠データ保存（トランザクション安定性の改善版）
+  // 勤怠データ保存（トランザクション安定性の改善版）- 修正済み
   async saveAttendanceData(data: AttendanceRecord[]): Promise<boolean> {
     if (!data || data.length === 0) return true;
     
@@ -163,53 +167,115 @@ export const IndexedDBService = {
       let success = true;
       let addedCount = 0;
       
-      // 各チャンクごとに独立したトランザクションを使用
-      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-        const chunk = data.slice(i, Math.min(i + CHUNK_SIZE, data.length));
-        
-        // 各チャンクで新しいトランザクションを作成
-        await new Promise<void>((resolve, reject) => {
-          try {
-            const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
-            const store = transaction.objectStore(STORES.ATTENDANCE);
-            
-            transaction.oncomplete = () => {
-              resolve();
-            };
-            
-            transaction.onerror = (e) => {
-              logError('チャンク保存エラー:', e);
-              success = false;
-              resolve(); // エラーでも継続
-            };
-            
-            // 同一トランザクション内ですべての操作を完了
-            chunk.forEach(record => {
-              try {
-                const recordWithId = {
-                  ...record,
-                  id: record.employeeId && record.date 
-                    ? `${record.employeeId}_${record.date}`
-                    : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
-                };
-                
-                const putRequest = store.put(recordWithId);
-                putRequest.onsuccess = () => {
-                  addedCount++;
-                };
-                putRequest.onerror = (e) => {
-                  logError('レコード保存エラー:', e);
-                };
-              } catch (e) {
-                logError('putリクエスト作成エラー:', e);
-              }
-            });
-          } catch (txError) {
-            logError('トランザクション作成エラー:', txError);
-            success = false;
-            resolve();
+      // 保存前に重複データをチェック - IDをキーにしたMapを作成
+      const uniqueRecords = new Map<string, AttendanceRecord>();
+      
+      data.forEach(record => {
+        if (record.employeeId && record.date) {
+          const recordId = `${record.employeeId}_${record.date}`;
+          uniqueRecords.set(recordId, record);
+        }
+      });
+      
+      // 一意のレコードの配列に変換
+      const deduplicatedData = Array.from(uniqueRecords.values());
+      logInfo(`重複排除後のレコード: ${deduplicatedData.length}件 (元: ${data.length}件)`);
+      
+      // 既存データをクリア（一括上書き）- データの一貫性を確保するため
+      // 月単位の操作を想定しているため、月単位のデータをまとめて更新
+      if (deduplicatedData.length > 0) {
+        try {
+          const monthPrefix = deduplicatedData[0].date.substring(0, 7); // YYYY-MM
+          
+          const monthRecords = deduplicatedData.filter(
+            record => record.date.startsWith(monthPrefix)
+          );
+          
+          // 月のデータが多い場合は、既存データをクリアする前に確認
+          if (monthRecords.length > 100) {
+            // 当月のデータだけをクリア
+            await this.clearAttendanceDataByMonth(monthPrefix);
+            logInfo(`${monthPrefix}の勤怠データをクリアしました`);
           }
-        });
+        } catch (e) {
+          logError('月次データクリアエラー:', e);
+          // エラーでも処理継続
+        }
+      }
+      
+      // 各チャンクごとに独立したトランザクションを使用
+      for (let i = 0; i < deduplicatedData.length; i += CHUNK_SIZE) {
+        const chunk = deduplicatedData.slice(i, Math.min(i + CHUNK_SIZE, deduplicatedData.length));
+        
+        // リトライロジックを追加（最大3回）
+        let retries = 0;
+        let chunkSuccess = false;
+        
+        while (!chunkSuccess && retries < 3) {
+          // 各チャンクで新しいトランザクションを作成
+          chunkSuccess = await new Promise<boolean>(resolve => {
+            try {
+              const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
+              const store = transaction.objectStore(STORES.ATTENDANCE);
+              
+              transaction.oncomplete = () => {
+                resolve(true);
+              };
+              
+              transaction.onerror = (e) => {
+                logError(`チャンク保存エラー (リトライ ${retries}/3):`, e);
+                resolve(false);
+              };
+              
+              let chunkAddedCount = 0;
+              
+              // 同一トランザクション内ですべての操作を完了
+              chunk.forEach(record => {
+                try {
+                  const recordWithId = {
+                    ...record,
+                    id: record.employeeId && record.date 
+                      ? `${record.employeeId}_${record.date}`
+                      : `attendance_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+                  };
+                  
+                  const putRequest = store.put(recordWithId);
+                  putRequest.onsuccess = () => {
+                    chunkAddedCount++;
+                    addedCount++;
+                  };
+                  putRequest.onerror = (e) => {
+                    logError('レコード保存エラー:', e);
+                  };
+                } catch (e) {
+                  logError('putリクエスト作成エラー:', e);
+                }
+              });
+              
+              // 進捗状況のログ
+              if (isDev && i + CHUNK_SIZE < deduplicatedData.length) {
+                logInfo(`チャンク処理中: ${Math.min(i + CHUNK_SIZE, deduplicatedData.length)}/${deduplicatedData.length}`);
+              }
+              
+            } catch (txError) {
+              logError(`トランザクション作成エラー (リトライ ${retries}/3):`, txError);
+              resolve(false);
+            }
+          });
+          
+          if (!chunkSuccess) {
+            retries++;
+            if (retries < 3) {
+              // 少し待機してからリトライ
+              await new Promise(resolve => setTimeout(resolve, 300 * retries));
+            }
+          }
+        }
+        
+        // チャンクの保存に失敗した場合は全体の成功フラグを更新
+        if (!chunkSuccess) {
+          success = false;
+        }
         
         // チャンク間でメインスレッドを解放
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -219,6 +285,62 @@ export const IndexedDBService = {
       return success;
     } catch (error) {
       logError('IndexedDB保存処理エラー:', error);
+      return false;
+    }
+  },
+  
+  // 特定の月の勤怠データをクリア（新規追加）
+  async clearAttendanceDataByMonth(monthPrefix: string): Promise<boolean> {
+    try {
+      const db = await this.initDB();
+      
+      return new Promise((resolve) => {
+        try {
+          const transaction = db.transaction([STORES.ATTENDANCE], 'readwrite');
+          const store = transaction.objectStore(STORES.ATTENDANCE);
+          const index = store.index('date');
+          
+          // 該当月のレコードを取得してから削除（一括削除機能がないため）
+          const range = IDBKeyRange.bound(
+            `${monthPrefix}-01`,
+            `${monthPrefix}-31`,
+            false,
+            false
+          );
+          
+          const request = index.openCursor(range);
+          let deletedCount = 0;
+          
+          request.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest).result;
+            if (cursor) {
+              try {
+                const deleteRequest = cursor.delete();
+                deleteRequest.onsuccess = () => deletedCount++;
+              } catch (e) {
+                logError('レコード削除エラー:', e);
+              }
+              cursor.continue();
+            }
+          };
+          
+          transaction.oncomplete = () => {
+            logInfo(`${monthPrefix}の勤怠データ ${deletedCount}件を削除しました`);
+            resolve(true);
+          };
+          
+          transaction.onerror = (e) => {
+            logError('月次データ削除エラー:', e);
+            resolve(false);
+          };
+          
+        } catch (txError) {
+          logError('トランザクション作成エラー:', txError);
+          resolve(false);
+        }
+      });
+    } catch (error) {
+      logError('クリア処理エラー:', error);
       return false;
     }
   },
@@ -263,73 +385,99 @@ export const IndexedDBService = {
     }
   },
   
-  // スケジュールデータ保存（最適化版）
+  // スケジュールデータ保存（最適化版）- 修正済み
   async saveScheduleData(data: ScheduleItem[]): Promise<boolean> {
     if (!data || data.length === 0) return true;
     
     try {
       const db = await this.initDB();
       
-      return new Promise(async (outerResolve) => {
-        try {
-          const CHUNK_SIZE = 200;
-          let addedCount = 0;
-          
-          const transaction = db.transaction([STORES.SCHEDULE], 'readwrite');
-          const store = transaction.objectStore(STORES.SCHEDULE);
-          
-          transaction.oncomplete = () => {
-            logInfo(`${addedCount}件のスケジュールデータを保存しました`);
-            outerResolve(true);
-          };
-          
-          transaction.onerror = (event) => {
-            logError('スケジュールデータ保存トランザクションエラー:', event);
-            outerResolve(addedCount > 0);
-          };
-          
-          // データ量に応じて既存データをクリアするかを判断
-          if (data.length > 500) {
+      // 重複を排除
+      const uniqueItems = new Map<string, ScheduleItem>();
+      data.forEach(item => {
+        uniqueItems.set(item.id, item);
+      });
+      
+      const deduplicatedData = Array.from(uniqueItems.values());
+      logInfo(`重複排除後のスケジュール: ${deduplicatedData.length}件 (元: ${data.length}件)`);
+      
+      // 大量データの一括保存を避け、チャンク処理に変更
+      const CHUNK_SIZE = 50; // 安定性向上のため小さいサイズに
+      let success = true;
+      let addedCount = 0;
+      
+      // チャンク処理でトランザクションを分散
+      for (let i = 0; i < deduplicatedData.length; i += CHUNK_SIZE) {
+        const chunk = deduplicatedData.slice(i, Math.min(i + CHUNK_SIZE, deduplicatedData.length));
+        
+        // リトライロジック
+        let retries = 0;
+        let chunkSuccess = false;
+        
+        while (!chunkSuccess && retries < 3) {
+          chunkSuccess = await new Promise<boolean>(resolve => {
             try {
-              await new Promise<void>((resolve, reject) => {
-                const clearRequest = store.clear();
-                clearRequest.onsuccess = () => resolve();
-                clearRequest.onerror = () => resolve(); // エラーでも継続
-              });
-            } catch (e) {
-              logError('スケジュールデータクリアエラー:', e);
-              // エラーでも処理継続
-            }
-          }
-          
-          // チャンク処理
-          await this.processInChunks(data, CHUNK_SIZE, async (chunk) => {
-            const promises = chunk.map(item => {
-              return new Promise<void>(resolve => {
+              const transaction = db.transaction([STORES.SCHEDULE], 'readwrite');
+              const store = transaction.objectStore(STORES.SCHEDULE);
+              
+              transaction.oncomplete = () => {
+                resolve(true);
+              };
+              
+              transaction.onerror = (e) => {
+                logError(`スケジュール保存エラー (リトライ ${retries}/3):`, e);
+                resolve(false);
+              };
+              
+              let chunkAddedCount = 0;
+              
+              // チャンク内のアイテムを処理
+              chunk.forEach(item => {
                 try {
                   const putRequest = store.put(item);
                   putRequest.onsuccess = () => {
+                    chunkAddedCount++;
                     addedCount++;
-                    resolve();
                   };
                   putRequest.onerror = (e) => {
                     logError('スケジュールアイテム保存エラー:', e);
-                    resolve(); // エラー時も処理続行
                   };
                 } catch (e) {
                   logError('スケジュールput作成エラー:', e);
-                  resolve(); // エラーでも処理続行
                 }
               });
-            });
-            
-            await Promise.all(promises);
+              
+              // 進捗状況のログ
+              if (isDev && i + CHUNK_SIZE < deduplicatedData.length) {
+                logInfo(`スケジュール処理中: ${Math.min(i + CHUNK_SIZE, deduplicatedData.length)}/${deduplicatedData.length}`);
+              }
+              
+            } catch (txError) {
+              logError(`スケジュールトランザクション作成エラー (リトライ ${retries}/3):`, txError);
+              resolve(false);
+            }
           });
-        } catch (innerError) {
-          logError('IndexedDB chunked save error:', innerError);
-          outerResolve(false);
+          
+          if (!chunkSuccess) {
+            retries++;
+            if (retries < 3) {
+              // 少し待機してからリトライ
+              await new Promise(resolve => setTimeout(resolve, 300 * retries));
+            }
+          }
         }
-      });
+        
+        // チャンクの保存に失敗した場合は全体の成功フラグを更新
+        if (!chunkSuccess) {
+          success = false;
+        }
+        
+        // チャンク間でメインスレッドを解放
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      logInfo(`IndexedDB: ${addedCount}件のスケジュールデータを保存しました`);
+      return success;
     } catch (error) {
       logError('IndexedDBスケジュールデータ保存エラー:', error);
       return false;
