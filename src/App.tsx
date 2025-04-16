@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { format } from "date-fns";
 import JapaneseHolidays from "japanese-holidays";
 import * as XLSX from "xlsx";
@@ -140,6 +140,10 @@ const App: React.FC = () => {
   const [isOffline, setIsOffline] = useState<boolean>(false);
   const [pendingChanges, setPendingChanges] = useState<boolean>(false);
 
+  // 日付ごとの集計をメモ化するためのマップ
+  const summaryCache = useRef(new Map<string, { [workType: string]: number }>());
+  const monthSummaryCache = useRef(new Map<string, number>());
+
   // トースト通知
   const [toast, setToast] = useState<{
     show: boolean;
@@ -187,6 +191,17 @@ const App: React.FC = () => {
     return employees.filter(emp => emp.id.toString() === selectedEmployee);
   }, [selectedEmployee]);
 
+  // クリーンアップ関数
+  const clearSummaryCache = useCallback(() => {
+    summaryCache.current.clear();
+    monthSummaryCache.current.clear();
+  }, []);
+
+  // 勤怠データが更新されたらキャッシュをクリア
+  useEffect(() => {
+    clearSummaryCache();
+  }, [attendanceData, clearSummaryCache]);
+
   // トースト通知を表示する関数
   const showToast = useCallback((message: string, type: "success" | "error" | "info" | "warning" = "info") => {
     setToast({
@@ -210,9 +225,16 @@ const App: React.FC = () => {
     return record ? record.workType : null;
   }, [attendanceData]);
 
-  // 勤務区分ごとの日次集計を行う関数
+  // 勤務区分ごとの日次集計を行う関数 - メモ化を強化
   const getDailySummary = useCallback((date: Date): { [workType: string]: number } => {
     const dateStr = format(date, "yyyy-MM-dd");
+    
+    // キャッシュに結果があればそれを返す
+    if (summaryCache.current.has(dateStr)) {
+      return summaryCache.current.get(dateStr)!;
+    }
+    
+    // 新しく計算する
     const summary: { [workType: string]: number } = {};
     
     // 指定日付の勤務区分を集計 (除外従業員を除いて集計)
@@ -222,11 +244,19 @@ const App: React.FC = () => {
       }
     });
     
+    // 結果をキャッシュに保存
+    summaryCache.current.set(dateStr, summary);
     return summary;
   }, [attendanceData]);
 
-  // 特定の従業員の月次集計を行う関数
+  // 特定の従業員の月次集計を行う関数 - メモ化と効率化
   const getEmployeeMonthSummary = useCallback((employeeId: string): number => {
+    // キャッシュをチェック
+    const cacheKey = `${employeeId}_${format(currentDate, "yyyy-MM")}`;
+    if (monthSummaryCache.current.has(cacheKey)) {
+      return monthSummaryCache.current.get(cacheKey)!;
+    }
+    
     // 当月の日付範囲を取得
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -235,25 +265,33 @@ const App: React.FC = () => {
     // 集計初期値
     let totalCount = 0;
     
-    // 従業員の当月のデータをフィルタリング
-    const employeeMonthData = attendanceData.filter(
-      record => record.employeeId === employeeId && record.date.startsWith(monthPrefix)
-    );
+    // 既に計算済みの日付を記録するSet
+    const processedDates = new Set<string>();
     
-    // 勤務区分ごとに集計
-    employeeMonthData.forEach(record => {
-      const recordDate = new Date(record.date);
-      const dayOfWeek = recordDate.getDay();
-      
-      if (record.workType === "休") {
-        // 休の場合: 土曜日なら0.5、それ以外なら1
-        totalCount += dayOfWeek === 6 ? 0.5 : 1;
-      } else if (record.workType === "A" || record.workType === "P") {
-        // AとPは0.5
-        totalCount += 0.5;
+    // 従業員の当月のデータをフィルタリング
+    attendanceData.forEach(record => {
+      // 対象の従業員と月のデータのみ処理
+      if (record.employeeId === employeeId && record.date.startsWith(monthPrefix)) {
+        // 同じ日付の重複計算を防止
+        if (!processedDates.has(record.date)) {
+          processedDates.add(record.date);
+          
+          const recordDate = new Date(record.date);
+          const dayOfWeek = recordDate.getDay();
+          
+          if (record.workType === "休") {
+            // 休の場合: 土曜日なら0.5、それ以外なら1
+            totalCount += dayOfWeek === 6 ? 0.5 : 1;
+          } else if (record.workType === "A" || record.workType === "P") {
+            // AとPは0.5
+            totalCount += 0.5;
+          }
+        }
       }
     });
     
+    // 結果をキャッシュに保存
+    monthSummaryCache.current.set(cacheKey, totalCount);
     return totalCount;
   }, [attendanceData, currentDate]);
 
@@ -317,7 +355,7 @@ const App: React.FC = () => {
     setScheduleModalOpen(true);
   }, []);
 
-  // 勤務区分選択後の処理 - 修正済み（重複保存の削除）
+  // 勤務区分選択後の処理 - 改善版
   const handleWorkTypeSelect = useCallback(async (workType: string) => {
     if (!selectedCell) return;
     
@@ -326,41 +364,46 @@ const App: React.FC = () => {
       setSyncProgress(10);
       
       const dateStr = format(selectedCell.date, "yyyy-MM-dd");
+      const employeeId = selectedCell.employeeId.toString();
       const employeeName = employees.find(emp => emp.id === selectedCell.employeeId)?.name;
       
-      // 既存のレコードを削除
-      const newData = attendanceData.filter(record => 
-        !(record.employeeId === selectedCell.employeeId.toString() && record.date === dateStr)
+      // 既存のデータを複製（イミュータビリティを保持）
+      const newData = [...attendanceData];
+      
+      // 既存のレコードのインデックスを検索
+      const existingIndex = newData.findIndex(
+        record => record.employeeId === employeeId && record.date === dateStr
       );
+      
+      // 既存のレコードがある場合は削除
+      if (existingIndex !== -1) {
+        newData.splice(existingIndex, 1);
+      }
       
       // 勤務区分が空でなければ新しいレコードを追加
       if (workType) {
         newData.push({
-          employeeId: selectedCell.employeeId.toString(),
+          employeeId,
           date: dateStr,
           workType,
           employeeName
         });
       }
       
-      setSyncProgress(30);
-      
-      // 状態を更新
+      // 状態を更新（一度だけ）
       setAttendanceData(newData);
       
-      // データを保存
+      // 関連するキャッシュをクリア
+      clearSummaryCache();
+      
+      // データを保存（一度だけ）
       setSyncProgress(50);
-      
-      // 重複保存を削除 - ローカルストレージへの直接保存は削除
-      // localStorage.setItem(STORAGE_KEYS.ATTENDANCE_DATA, JSON.stringify(newData));
-      
       const success = await StorageService.saveData(STORAGE_KEYS.ATTENDANCE_DATA, newData);
       
       setSyncProgress(100);
       setIsSyncing(false);
       
       if (success) {
-        // オンライン状態に応じてフラグ設定
         setPendingChanges(!navigator.onLine && !isOffline);
         showToast("勤務区分を更新しました", "success");
       } else {
@@ -372,9 +415,9 @@ const App: React.FC = () => {
       setIsSyncing(false);
       showToast("勤務区分の更新に失敗しました", "error");
     }
-  }, [selectedCell, attendanceData, employees, showToast, isOffline]);
+  }, [selectedCell, attendanceData, employees, showToast, isOffline, clearSummaryCache]);
 
-  // 予定の保存処理 - 修正済み（重複保存の削除）
+  // 予定の保存処理
   const handleScheduleSave = useCallback(async (scheduleFormData: { 
     title: string; 
     employeeIds: string[]; 
@@ -432,9 +475,6 @@ const App: React.FC = () => {
       // 状態を更新
       setScheduleData(newSchedules);
       
-      // 重複保存を削除 - ローカルストレージへの直接保存は削除
-      // localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
-      
       // データを保存
       setSyncProgress(70);
       const success = await StorageService.saveData(STORAGE_KEYS.SCHEDULE_DATA, newSchedules);
@@ -452,19 +492,12 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('予定の保存に失敗しました:', error);
       
-      // エラーが発生しても最低限ローカルストレージには保存を試みる
-      try {
-        localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(scheduleData));
-      } catch (storageError) {
-        console.error('ローカルストレージへの保存も失敗:', storageError);
-      }
-      
       setIsSyncing(false);
       showToast("予定の保存に失敗しました", "error");
     }
   }, [selectedSchedule, scheduleData, showToast, isOffline]);
 
-  // 予定の削除処理 - 修正済み（重複保存の削除）
+  // 予定の削除処理
   const handleScheduleDelete = useCallback(async (scheduleId: string) => {
     try {
       setIsSyncing(true);
@@ -477,9 +510,6 @@ const App: React.FC = () => {
       
       // 状態を更新
       setScheduleData(newSchedules);
-      
-      // 重複保存を削除 - ローカルストレージへの直接保存は削除
-      // localStorage.setItem(STORAGE_KEYS.SCHEDULE_DATA, JSON.stringify(newSchedules));
       
       // データを保存
       setSyncProgress(70);
@@ -509,7 +539,9 @@ const App: React.FC = () => {
       newDate.setMonth(prev.getMonth() - 1);
       return newDate;
     });
-  }, []);
+    // 月変更時にキャッシュをクリア
+    clearSummaryCache();
+  }, [clearSummaryCache]);
 
   // 翌月へ移動
   const goToNextMonth = useCallback(() => {
@@ -518,7 +550,9 @@ const App: React.FC = () => {
       newDate.setMonth(prev.getMonth() + 1);
       return newDate;
     });
-  }, []);
+    // 月変更時にキャッシュをクリア
+    clearSummaryCache();
+  }, [clearSummaryCache]);
 
   // syncData関数の改善版
   const syncData = useCallback(async () => {
@@ -625,6 +659,37 @@ const App: React.FC = () => {
     }
   }, [attendanceData, currentDate, showToast]);
 
+  // デバッグと検証機能の追加
+  // 開発環境のみで動作するデバッグコード（NODE_ENV=developmentの場合のみ実行）
+  const isDev = process.env.NODE_ENV === 'development';
+
+  useEffect(() => {
+    if (isDev) {
+      // データの整合性チェック
+      const checkDataConsistency = () => {
+        // 重複レコードをチェック
+        const recordMap = new Map();
+        let duplicates = 0;
+        
+        attendanceData.forEach(record => {
+          const key = `${record.employeeId}_${record.date}`;
+          if (recordMap.has(key)) {
+            duplicates++;
+            console.warn(`重複レコード: ${key}`, record, recordMap.get(key));
+          } else {
+            recordMap.set(key, record);
+          }
+        });
+        
+        if (duplicates > 0) {
+          console.warn(`⚠️ 重複レコードが${duplicates}件見つかりました`);
+        }
+      };
+      
+      checkDataConsistency();
+    }
+  }, [attendanceData, isDev]);
+
   // オンライン/オフライン状態の監視
   useEffect(() => {
     const handleOnline = () => {
@@ -652,13 +717,13 @@ const App: React.FC = () => {
     };
   }, [attendanceData.length, scheduleData.length, showToast]);
 
-  // 初期データ読み込み（修正版）
+  // 初期データ読み込み
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
         
-        // StorageServiceからデータを読み込む - localStorageのデータは下層で読み込まれる
+        // StorageServiceからデータを読み込む
         const [serviceAttendance, serviceSchedule] = await Promise.all([
           StorageService.getDataAsync<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE_DATA, []),
           StorageService.getDataAsync<ScheduleItem[]>(STORAGE_KEYS.SCHEDULE_DATA, [])
