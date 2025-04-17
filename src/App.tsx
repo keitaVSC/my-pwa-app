@@ -336,9 +336,9 @@ const App: React.FC = () => {
       }
     });
     
-    // 平日は7人以上、土曜日は5人以上で警告
-    return (dayOfWeek === 6 && warningTotal >= 5) || // 土曜日
-           (dayOfWeek !== 0 && dayOfWeek !== 6 && warningTotal >= 7); // 平日
+    // 平日は8人以上、土曜日は6人以上で警告
+    return (dayOfWeek === 6 && warningTotal >= 6) || // 土曜日
+           (dayOfWeek !== 0 && dayOfWeek !== 6 && warningTotal >= 8); // 平日
   }, [getDailySummary]);
 
   // 日付ごとの集計が存在する勤務区分のみをフィルタリングして返す関数
