@@ -23,22 +23,39 @@ const getHolidayName = (date: Date): string | null => {
 
 // 背景色判定関数
 const getCellBackground = (date: Date) => {
+  const today = new Date();
+  const isToday = date.getDate() === today.getDate() && 
+                  date.getMonth() === today.getMonth() && 
+                  date.getFullYear() === today.getFullYear();
+  
   const dayOfWeek = date.getDay();
+  
+  if (isToday) {
+    return {
+      bg: "",  // 背景色はクリアに
+      text: "text-red-600",
+      isToday: true  // 今日かどうかのフラグを追加
+    };
+  }
+  
   if (dayOfWeek === 0 || isJapaneseHoliday(date)) {
     return {
       bg: "bg-red-50",
-      text: "text-red-600"
+      text: "text-red-600",
+      isToday: false
     };
   }
   if (dayOfWeek === 6) {
     return {
       bg: "bg-blue-50",
-      text: "text-blue-600"
+      text: "text-blue-600",
+      isToday: false
     };
   }
   return {
     bg: "",
-    text: ""
+    text: "",
+    isToday: false
   };
 };
 
@@ -853,7 +870,7 @@ const App: React.FC = () => {
                     <th className="sticky left-0 top-0 border p-2 bg-white z-20 min-w-[120px]">従業員名</th>
                     {datesArray.map(date => {
                       const dayOfWeek = getDayOfWeek(date);
-                      const { bg, text } = getCellBackground(date);
+                      const { bg, text, isToday } = getCellBackground(date);
                       const holidayName = getHolidayName(date);
                       const isWarning = isWarningCondition(date);
                       const dailySummary = getDailySummary(date);
@@ -865,7 +882,14 @@ const App: React.FC = () => {
                           className={`border p-2 ${isWarning ? 'bg-yellow-100' : bg} ${text} whitespace-nowrap min-w-[70px]`}
                         >
                           <div className="flex flex-col items-center">
-                            <div className="text-base">{date.getDate()}</div>
+                            {isToday ? (
+                              <div className="relative flex items-center justify-center w-8 h-8">
+                                <div className="absolute inset-0 bg-red-500 rounded-full"></div>
+                                <div className="relative z-10 text-base text-white font-bold">{date.getDate()}</div>
+                              </div>
+                            ) : (
+                              <div className="text-base w-8 h-8 flex items-center justify-center">{date.getDate()}</div>
+                            )}
                             <div className="text-xs">{dayOfWeek}</div>
                             {holidayName && (
                               <div className="text-xs text-red-500 truncate max-w-[60px]">{holidayName}</div>
@@ -897,7 +921,7 @@ const App: React.FC = () => {
                       </td>
                       {datesArray.map(date => {
                         const workType = getEmployeeWorkType(employee.id, date);
-                        const { bg } = getCellBackground(date);
+                        const { bg, isToday } = getCellBackground(date);
                         const schedules = getSchedulesForDate(date, employee.id);
                         const isWarning = isWarningCondition(date);
                         
@@ -966,7 +990,7 @@ const App: React.FC = () => {
                     </th>
                     {datesArray.map(date => {
                       const dayOfWeek = getDayOfWeek(date);
-                      const { bg, text } = getCellBackground(date);
+                      const { bg, text, isToday } = getCellBackground(date);
                       const holidayName = getHolidayName(date);
                       
                       return (
@@ -975,7 +999,14 @@ const App: React.FC = () => {
                           className={`border p-2 ${bg} ${text} whitespace-nowrap min-w-[70px]`}
                         >
                           <div className="flex flex-col items-center">
-                            <div className="text-base">{date.getDate()}</div>
+                            {isToday ? (
+                              <div className="relative flex items-center justify-center w-8 h-8">
+                                <div className="absolute inset-0 bg-red-500 rounded-full"></div>
+                                <div className="relative z-10 text-base text-white font-bold">{date.getDate()}</div>
+                              </div>
+                            ) : (
+                              <div className="text-base w-8 h-8 flex items-center justify-center">{date.getDate()}</div>
+                            )}
                             <div className="text-xs">{dayOfWeek}</div>
                             {holidayName && (
                               <div className="text-xs text-red-500 truncate max-w-[60px]">{holidayName}</div>
