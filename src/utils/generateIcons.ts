@@ -41,9 +41,9 @@ fs.writeFileSync(path.join(iconDir, 'icon.svg'), iconSvg);
 
 // manifest.jsonの作成
 const manifest = {
-  "name": "勤怠管理アプリ",
-  "short_name": "勤怠管理",
-  "description": "勤怠管理システム",
+  "name": "勤務調整アプリ",
+  "short_name": "勤務調整",
+  "description": "勤務調整システム",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

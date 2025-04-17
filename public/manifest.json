@@ -1,7 +1,7 @@
 {
-  "name": "勤務管理アプリ",
-  "short_name": "勤務管理",
-  "description": "勤務管理システム",
+  "name": "勤務調整アプリ",
+  "short_name": "勤務調整",
+  "description": "勤務調整システム",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

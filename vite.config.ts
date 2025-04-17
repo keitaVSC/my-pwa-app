@@ -75,9 +75,9 @@ export default defineConfig({
       },
       includeAssets: ['favicon.ico', 'icons/icon-192x192.png', 'icons/icon-512x512.png'],
       manifest: {
-        name: '勤務管理アプリ',
-        short_name: '勤務管理',
-        description: '勤務管理アプリケーション',
+        name: '勤務調整アプリ',
+        short_name: '勤務調整',
+        description: '勤務調整アプリケーション',
         start_url: '/',
         display: 'standalone',
         background_color: '#ffffff',
