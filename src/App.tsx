@@ -128,6 +128,21 @@ const warningWorkTypes = [
 // 警告対象から除外する従業員ID
 const excludedEmployeeIds = ["23", "24", "25", "26", "27"]; // 益田幸枝、井上真理子、斎藤綾子、越野裕太、非常勤（桑原真尋）のID
 
+// 重複データを排除する関数
+const deduplicateAttendanceData = (data: AttendanceRecord[]): AttendanceRecord[] => {
+  const uniqueRecords = new Map<string, AttendanceRecord>();
+  
+  // 逆順に処理して最新のエントリを保持する
+  [...data].reverse().forEach(record => {
+    const key = `${record.employeeId}_${record.date}`;
+    if (!uniqueRecords.has(key)) {
+      uniqueRecords.set(key, record);
+    }
+  });
+  
+  return Array.from(uniqueRecords.values());
+};
+
 const App: React.FC = () => {
   // 状態管理
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -225,7 +240,7 @@ const App: React.FC = () => {
     return record ? record.workType : null;
   }, [attendanceData]);
 
-  // 勤務区分ごとの日次集計を行う関数 - メモ化を強化
+  // 勤務区分ごとの日次集計を行う関数 - 重複排除版
   const getDailySummary = useCallback((date: Date): { [workType: string]: number } => {
     const dateStr = format(date, "yyyy-MM-dd");
     
@@ -237,9 +252,17 @@ const App: React.FC = () => {
     // 新しく計算する
     const summary: { [workType: string]: number } = {};
     
+    // 重複をチェックするためのSet
+    const processedEmployees = new Set<string>();
+    
     // 指定日付の勤務区分を集計 (除外従業員を除いて集計)
     attendanceData.forEach(record => {
       if (record.date === dateStr && !excludedEmployeeIds.includes(record.employeeId)) {
+        // 既に同じ従業員のデータを処理済みの場合はスキップ
+        const key = `${record.employeeId}`;
+        if (processedEmployees.has(key)) return;
+        
+        processedEmployees.add(key);
         summary[record.workType] = (summary[record.workType] || 0) + 1;
       }
     });
@@ -249,7 +272,7 @@ const App: React.FC = () => {
     return summary;
   }, [attendanceData]);
 
-  // 特定の従業員の月次集計を行う関数 - メモ化と効率化
+  // 特定の従業員の月次集計を行う関数 - "Fビ"を除外
   const getEmployeeMonthSummary = useCallback((employeeId: string): number => {
     // キャッシュをチェック
     const cacheKey = `${employeeId}_${format(currentDate, "yyyy-MM")}`;
@@ -268,6 +291,11 @@ const App: React.FC = () => {
     // 既に計算済みの日付を記録するSet
     const processedDates = new Set<string>();
     
+    // 大文字を含む勤務区分かどうかをチェックする関数 (Fビは除外)
+    const isPointWorkType = (workType: string): boolean => {
+      return /[A-Z]/.test(workType) && workType !== "Fビ";
+    };
+    
     // 従業員の当月のデータをフィルタリング
     attendanceData.forEach(record => {
       // 対象の従業員と月のデータのみ処理
@@ -282,8 +310,8 @@ const App: React.FC = () => {
           if (record.workType === "休") {
             // 休の場合: 土曜日なら0.5、それ以外なら1
             totalCount += dayOfWeek === 6 ? 0.5 : 1;
-          } else if (record.workType === "A" || record.workType === "P") {
-            // AとPは0.5
+          } else if (isPointWorkType(record.workType)) {
+            // 大文字を含む勤務区分は0.5ポイント (Fビは除外)
             totalCount += 0.5;
           }
         }
@@ -732,7 +760,8 @@ const App: React.FC = () => {
         console.log('データ読み込み完了:', 
           `勤怠データ ${serviceAttendance.length}件, スケジュールデータ ${serviceSchedule.length}件`);
         
-        setAttendanceData(serviceAttendance);
+        // 重複を排除してから設定
+        setAttendanceData(deduplicateAttendanceData(serviceAttendance));
         setScheduleData(serviceSchedule);
         
         // オンライン状態で既存データがある場合、同期フラグを立てる
